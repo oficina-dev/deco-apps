@@ -2,8 +2,9 @@ import { setCookie } from "std/http/mod.ts";
 import { AppContext } from "../mod.ts";
 import type { Segment } from "./types.ts";
 import { removeNonLatin1Chars } from "../../utils/normalize.ts";
+// import { parseCookie } from "./vtexId.ts";
 
-const SEGMENT_COOKIE_NAME = "vtex_segment";
+export const SEGMENT_COOKIE_NAME = "vtex_segment";
 const SALES_CHANNEL_COOKIE = "VTEXSC";
 const SEGMENT = Symbol("segment");
 const ORDER_FORM_ID = Symbol("orderFormId");
@@ -230,12 +231,12 @@ export const setSegmentBag = (
   ctx: AppContext,
 ) => {
   const vtex_segment = cookies[SEGMENT_COOKIE_NAME];
-  const segmentFromCookie = vtex_segment && parse(vtex_segment);
+  const segmentFromCookie = vtex_segment ? parse(vtex_segment) : null;
+
   const segmentFromSalesChannelCookie = cookies[SALES_CHANNEL_COOKIE]
-    ? {
-      channel: cookies[SALES_CHANNEL_COOKIE]?.split("=")[1],
-    }
+    ? { channel: cookies[SALES_CHANNEL_COOKIE]?.split("=")[1] }
     : {};
+
   const segmentFromRequest = buildSegmentFromRequest(req);
 
   const locale = {
@@ -256,6 +257,7 @@ export const setSegmentBag = (
     ...segmentFromRequest,
     ...locale,
   };
+
   const token = serialize(segment);
   setSegmentInBag(ctx, { payload: segment, token });
 
