@@ -86,8 +86,8 @@ export const sortPosts = async (
       return -1; // If post b doesn't have sort method, put it after post a
     }
     const comparison = sortMethod === "date"
-      ? new Date(b.date).getTime() -
-        new Date(a.date).getTime()
+      ? new Date(`${b.date}T00:00:00`).getTime() -
+        new Date(`${a.date}T00:00:00`).getTime()
       : a[sortMethod]?.toString().localeCompare(
         b[sortMethod]?.toString() ?? "",
       ) ?? 0;
@@ -103,7 +103,7 @@ export const sortPosts = async (
  */
 export const filterPostsByCategory = (posts: BlogPost[], slug?: string) =>
   slug
-    ? posts.filter(({ categories }) => categories.find((c) => c.slug === slug))
+    ? posts.filter(({ categories }) => categories?.find((c) => c.slug === slug))
     : posts;
 
 /**
@@ -139,7 +139,7 @@ export const filterRelatedPosts = (
   slug: string[],
 ) =>
   posts.filter(
-    ({ categories }) => categories.find((c) => slug.includes(c.slug)),
+    ({ categories }) => categories?.find((c) => slug.includes(c.slug)),
   );
 
 /**
