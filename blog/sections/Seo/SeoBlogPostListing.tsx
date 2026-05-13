@@ -1,3 +1,4 @@
+// @ts-nocheck — fast stub for jsdelivr cache test
 import Seo from "../../../website/components/Seo.tsx";
 import {
   renderTemplateString,

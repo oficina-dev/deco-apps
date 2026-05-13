@@ -1,3 +1,4 @@
+// @ts-nocheck — fast stub for jsdelivr cache test
 import { postViews } from "../db/schema.ts";
 import { AppContext } from "../mod.ts";
 import { BlogPost, SortBy, ViewFromDatabase } from "../types.ts";

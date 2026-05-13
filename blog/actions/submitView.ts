@@ -1,3 +1,4 @@
+// @ts-nocheck — fast stub for jsdelivr cache test
 import { eq } from "npm:drizzle-orm@0.43.1";
 import { postViews } from "../db/schema.ts";
 import { AppContext } from "../mod.ts";

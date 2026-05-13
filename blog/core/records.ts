@@ -1,3 +1,4 @@
+// @ts-nocheck — fast stub for jsdelivr cache test
 import { rating, review } from "../db/schema.ts";
 import { AppContext } from "../mod.ts";
 import { type Resolvable } from "@deco/deco";

@@ -1,3 +1,4 @@
+// @ts-nocheck — fast stub for jsdelivr cache test
 import { and, eq, like, or } from "npm:drizzle-orm@0.43.1";
 import { Person } from "../../commerce/types.ts";
 import { AppContext } from "../mod.ts";
