@@ -6,6 +6,9 @@ import {
   proxySetCookie,
   REFRESH_TOKEN_COOKIE,
 } from "../../utils/cookies.ts";
+import { HttpError } from "../../../utils/http.ts";
+import { logger } from "@deco/deco/o11y";
+import { authResponseFromHttpError } from "../../utils/authResponse.ts";
 
 export interface Props {
   email: string;
@@ -38,19 +41,25 @@ export default async function action(
   startLoginBody.append("callbackUrl", "/");
   startLoginBody.append("fingerprint", "");
 
-  const startLoginResponse = await vcsDeprecated
-    ["POST /api/vtexid/pub/authentication/startlogin"](
-      {},
-      {
-        body: startLoginBody,
-        headers: { cookie: req.headers.get("cookie") || "" },
-      },
-    );
-
-  if (!startLoginResponse.ok) {
-    throw new Error(
-      `Failed to start login. ${startLoginResponse.status} ${startLoginResponse.statusText}`,
-    );
+  let startLoginResponse;
+  try {
+    startLoginResponse = await vcsDeprecated
+      ["POST /api/vtexid/pub/authentication/startlogin"](
+        {},
+        {
+          body: startLoginBody,
+          headers: { cookie: req.headers.get("cookie") || "" },
+        },
+      );
+  } catch (error) {
+    const status = error instanceof HttpError ? error.status : 500;
+    const body = error instanceof Error ? error.message : String(error);
+    logger.error("[vtex/resetPassword] startlogin failed", {
+      email: props.email,
+      status,
+      body,
+    });
+    throw new HttpError(status, body, { cause: error });
   }
 
   proxySetCookie(startLoginResponse.headers, ctx.response.headers, req.url);
@@ -64,25 +73,46 @@ export default async function action(
   setPasswordBody.append("accesskey", "");
   setPasswordBody.append("recaptcha", "");
 
-  const response = await vcsDeprecated
-    ["POST /api/vtexid/pub/authentication/classic/setpassword"](
-      { expireSessions: true },
-      {
-        body: setPasswordBody,
-        headers: { "Accept": "application/json", cookie },
-      },
-    );
-
-  if (!response.ok) {
-    throw new Error(
-      `Authentication request failed: ${response.status} ${response.statusText}`,
-    );
+  let response;
+  try {
+    response = await vcsDeprecated
+      ["POST /api/vtexid/pub/authentication/classic/setpassword"](
+        { expireSessions: true },
+        {
+          body: setPasswordBody,
+          headers: { "Accept": "application/json", cookie },
+        },
+      );
+  } catch (error) {
+    // A structured VTEX rejection (WrongCredentials, BlockedUser) is a normal result.
+    const rejection = authResponseFromHttpError(error);
+    if (rejection) return rejection;
+    const status = error instanceof HttpError ? error.status : 500;
+    const body = error instanceof Error ? error.message : String(error);
+    logger.error("[vtex/resetPassword] setpassword failed", {
+      email: props.email,
+      status,
+      body,
+    });
+    throw new HttpError(status, body, { cause: error });
   }
 
   const data: AuthResponse = await response.json();
 
   proxySetCookie(response.headers, ctx.response.headers, req.url);
-  await ctx.invoke.vtex.actions.session.validateSession();
+
+  try {
+    await ctx.invoke.vtex.actions.session.validateSession();
+  } catch (error) {
+    // setpassword already succeeded — a session hiccup must not look like a failure.
+    logger.error(
+      "[vtex/resetPassword] validateSession failed after password change",
+      {
+        email: props.email,
+        body: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
 
   const setCookies = getSetCookies(ctx.response.headers);
   for (const responseCookie of setCookies) {

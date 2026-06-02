@@ -7,6 +7,9 @@ import {
   proxySetCookie,
   REFRESH_TOKEN_COOKIE,
 } from "../../utils/cookies.ts";
+import { HttpError } from "../../../utils/http.ts";
+import { logger } from "@deco/deco/o11y";
+import { authResponseFromHttpError } from "../../utils/authResponse.ts";
 
 export interface Props {
   email: string;
@@ -45,31 +48,51 @@ export default async function action(
   urlencoded.append("newPassword", props.newPassword);
   urlencoded.append("authenticationToken", VtexSessionToken);
 
-  const response = await vcsDeprecated
-    ["POST /api/vtexid/pub/authentication/classic/setpassword"](
-      {
-        locale: segment?.payload.cultureInfo || "pt-BR",
-        scope: account,
-      },
-      {
-        body: urlencoded,
-        headers: {
-          "Accept": "application/json",
-          "Content-Type": "application/x-www-form-urlencoded",
-          cookie,
+  let response;
+  try {
+    response = await vcsDeprecated
+      ["POST /api/vtexid/pub/authentication/classic/setpassword"](
+        {
+          locale: segment?.payload.cultureInfo || "pt-BR",
+          scope: account,
         },
-      },
-    );
-
-  if (!response.ok) {
-    throw new Error(
-      `Authentication request failed: ${response.status} ${response.statusText}`,
-    );
+        {
+          body: urlencoded,
+          headers: {
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
+            cookie,
+          },
+        },
+      );
+  } catch (error) {
+    // A structured VTEX rejection (wrong access key, WrongCredentials) is a normal result.
+    const rejection = authResponseFromHttpError(error);
+    if (rejection) return rejection;
+    const status = error instanceof HttpError ? error.status : 500;
+    const body = error instanceof Error ? error.message : String(error);
+    logger.error("[vtex/recoveryPassword] setpassword failed", {
+      email: props.email,
+      status,
+      body,
+    });
+    throw new HttpError(status, body, { cause: error });
   }
 
   const data: AuthResponse = await response.json();
   proxySetCookie(response.headers, ctx.response.headers, req.url);
-  await ctx.invoke.vtex.actions.session.validateSession();
+  try {
+    await ctx.invoke.vtex.actions.session.validateSession();
+  } catch (error) {
+    // setpassword already succeeded — a session hiccup must not look like a failure.
+    logger.error(
+      "[vtex/recoveryPassword] validateSession failed after password change",
+      {
+        email: props.email,
+        body: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
 
   // TODO: REMOVE THIS AFTER TESTING AND VALIDATE IF NEEDED
   const setCookies = getSetCookies(ctx.response.headers);
