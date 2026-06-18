@@ -40,7 +40,8 @@
     "@deco/deco/blocks": "https://cdn.jsdelivr.net/gh/oficina-dev/deco-runtime@c02283160f28d671858b84ff3ecf707aaf909a28/blocks/mod.ts",
     "@deco/deco/hooks": "https://cdn.jsdelivr.net/gh/oficina-dev/deco-runtime@c02283160f28d671858b84ff3ecf707aaf909a28/hooks/mod.ts",
     "@deco/deco/o11y": "https://cdn.jsdelivr.net/gh/oficina-dev/deco-runtime@c02283160f28d671858b84ff3ecf707aaf909a28/observability/mod.ts",
-    "@deco/deco/utils": "https://cdn.jsdelivr.net/gh/oficina-dev/deco-runtime@c02283160f28d671858b84ff3ecf707aaf909a28/utils/mod.ts"
+    "@deco/deco/utils": "https://cdn.jsdelivr.net/gh/oficina-dev/deco-runtime@c02283160f28d671858b84ff3ecf707aaf909a28/utils/mod.ts",
+    "@deco/deco/scripts/bundle": "jsr:@deco/deco@^1.181.0/scripts/bundle"
   },
   "lock": false,
   "tasks": {
