@@ -200,7 +200,12 @@ export default function Fresh(
               hooks: {
                 // Dropped sections short-circuit child resolution (their
                 // prop-loaders never run) — see deco engine/core/resolver.ts.
-                onPropsResolveStart: (resolve, _props, resolver, resolveType) => {
+                onPropsResolveStart: (
+                  resolve,
+                  _props,
+                  resolver,
+                  resolveType,
+                ) => {
                   if (renderJson && isDroppedSection(resolveType)) {
                     return Promise.resolve([]);
                   }
