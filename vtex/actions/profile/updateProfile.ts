@@ -1,4 +1,3 @@
-import { getCookies } from "std/http/mod.ts";
 import { AppContext } from "../../mod.ts";
 import type { Profile, ProfileInput } from "../../utils/types.ts";
 import { forwardCookie, parseCookie } from "../../utils/vtexId.ts";
@@ -40,16 +39,6 @@ async function action(
 
   const cookie = forwardCookie(req.headers);
 
-  // Under a telesales session payload.sub is the OPERATOR's email, so read the email FIELD
-  // from this public, client-writable cookie instead. The write's target stays bounded by the
-  // forwarded session (store-graphql's @withCurrentProfile, Televendas-gated), not this cookie.
-  const impersonatedEmail =
-    getCookies(req.headers)["vtex-impersonated-customer-email"];
-  const email = payload.audience === "admin" ? impersonatedEmail : payload.sub;
-  if (!email) {
-    throw new Error("Could not resolve the target profile email");
-  }
-
   const { updateProfile } = await io.query<
     { updateProfile: Profile },
     { input: ProfileInput }
@@ -60,7 +49,8 @@ async function action(
       variables: {
         input: {
           ...props,
-          email,
+          // store-graphql drops this field: the write targets the session-resolved profile.
+          email: payload.sub,
         },
       },
     },
