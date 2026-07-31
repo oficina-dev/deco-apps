@@ -87,10 +87,25 @@ export interface Props {
   advancedConfigs?: {
     doNotFetchVariantsForRelatedProducts?: boolean;
     /**
+     * @title Hide Unavailable Items
+     * @description Default behavior for hiding out of stock items across search, shelves and listing loaders. Individual loaders can still override this. When unset, defaults to false.
+     */
+    hideUnavailableItems?: boolean;
+    /**
      * @title Remove UTM from cache key
      * @description Remove UTM from cache key to prevent cache fragmentation.
      */
     removeUTMFromCacheKey?: boolean;
+    /**
+     * @title Cache PLPs with `filter.*` params
+     * @description By default, PLP URLs carrying `filter.*` query params are NOT
+     * cached, to avoid bots crawling arbitrary filter combinations and
+     * exploding the number of distinct cache keys. Enable this only if your
+     * filter surface is bounded and you want filtered PLPs to be cacheable.
+     * Each filter combination still produces a distinct cache key.
+     * @default false
+     */
+    cacheFilteredPLP?: boolean;
   };
 
   /**

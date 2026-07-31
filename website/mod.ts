@@ -110,13 +110,6 @@ export interface Props {
    */
   caching?: Caching;
   /**
-   * @title Global Async Rendering (Deprecated)
-   * @description Please disable this setting and enable each section individually. More info at https://deco.cx/en/blog/async-render-default
-   * @deprecated true
-   * @default false
-   */
-  firstByteThresholdMS?: boolean;
-  /**
    * @title renderJson
    * @description Options for the structured JSON rendering of pages (?renderJson)
    */

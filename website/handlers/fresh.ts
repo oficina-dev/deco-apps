@@ -102,7 +102,6 @@ export default function Fresh(
     | "monitoring"
     | "response"
     | "caching"
-    | "firstByteThresholdMS"
     | "isBot"
     | "flavor"
     | "renderJson"
@@ -122,8 +121,7 @@ export default function Fresh(
     const renderJson = url.searchParams.has("renderJson");
     // One-shot JSON responses (asJson/renderJson) never use async render.
     const isJsonOneShot = asJson !== null || renderJson;
-    const delayFromProps = appContext.firstByteThresholdMS ? 1 : 0;
-    const delay = Number(url.searchParams.get(__DECO_FBT) ?? delayFromProps);
+    const delay = Number(url.searchParams.get(__DECO_FBT) ?? 0);
     /** Controller to abort third party fetch (loaders) */
     const ctrl = new AbortController();
     const pathTemplate = isFreshCtx<DecoState>(ctx)

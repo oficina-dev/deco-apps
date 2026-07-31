@@ -159,8 +159,9 @@ export interface Props {
    */
   simulationBehavior?: SimulationBehavior;
 }
-const searchArgsOf = (props: Props, url: URL) => {
-  const hideUnavailableItems = props.hideUnavailableItems;
+const searchArgsOf = (props: Props, url: URL, ctx: AppContext) => {
+  const hideUnavailableItems = props.hideUnavailableItems ??
+    ctx.advancedConfigs?.hideUnavailableItems;
   const simulationBehavior =
     url.searchParams.get("simulationBehavior") as SimulationBehavior ||
     props.simulationBehavior || "default";
@@ -283,6 +284,7 @@ const loader = async (
   const { selectedFacets: baseSelectedFacets, page, ...args } = searchArgsOf(
     props,
     url,
+    ctx,
   );
   let pathToUse = url.href.replace(url.origin, "");
 
@@ -444,8 +446,12 @@ export const cacheKey = (props: Props, req: Request, ctx: AppContext) => {
     return null;
   }
 
+  // By default, don't cache PLPs with `filter.*` params: bots crawling
+  // arbitrary filter combinations would explode the number of distinct cache
+  // keys. Opt in via advancedConfigs.cacheFilteredPLP when the filter surface
+  // is bounded — filter.* params are already whitelisted into the key below.
   if (
-    url.search.includes("filter.")
+    !ctx.advancedConfigs?.cacheFilteredPLP && url.search.includes("filter.")
   ) {
     return null;
   }
@@ -460,7 +466,12 @@ export const cacheKey = (props: Props, req: Request, ctx: AppContext) => {
     ["page", (props.page ?? url.searchParams.get("page") ?? 1).toString()],
     ["sort", props.sort ?? url.searchParams.get("sort") ?? ""],
     ["fuzzy", props.fuzzy ?? url.searchParams.get("fuzzy") ?? ""],
-    ["hideUnavailableItems", props.hideUnavailableItems?.toString() ?? ""],
+    [
+      "hideUnavailableItems",
+      (props.hideUnavailableItems ?? ctx.advancedConfigs?.hideUnavailableItems)
+        ?.toString() ??
+        "",
+    ],
     ["pageOffset", (props.pageOffset ?? 1).toString()],
     [
       "selectedFacets",
