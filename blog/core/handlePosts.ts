@@ -3,6 +3,29 @@ import { AppContext } from "../mod.ts";
 import { BlogPost, SortBy, ViewFromDatabase } from "../types.ts";
 import { VALID_SORT_ORDERS } from "../utils/constants.ts";
 
+/** An ISO 8601 date or date-time carrying no timezone designator. */
+const ISO_WITHOUT_TIMEZONE =
+  /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?)?$/;
+
+/**
+ * `BlogPost.date` may be a bare `YYYY-MM-DD` or a full ISO 8601 timestamp.
+ *
+ * Anything without a timezone designator is pinned to UTC, so ordering never
+ * depends on the machine timezone. That matters for both shapes: per spec a
+ * bare date is already UTC, but an offset-less datetime is parsed as *local*
+ * time, which would otherwise reorder posts near a day boundary from one
+ * server to the next.
+ *
+ * Unparseable values fall back to 0 instead of leaking NaN into the comparator
+ * (a NaN result is treated as 0, so the post would never move).
+ */
+const dateToTime = (date: string) =>
+  new Date(
+    ISO_WITHOUT_TIMEZONE.test(date)
+      ? `${date.includes("T") ? date : `${date}T00:00:00`}Z`
+      : date,
+  ).getTime() || 0;
+
 /**
  * Returns an sorted BlogPost list
  *
@@ -87,8 +110,7 @@ export const sortPosts = async (
       return -1; // If post b doesn't have sort method, put it after post a
     }
     const comparison = sortMethod === "date"
-      ? new Date(`${b.date}T00:00:00`).getTime() -
-        new Date(`${a.date}T00:00:00`).getTime()
+      ? dateToTime(b.date) - dateToTime(a.date)
       : a[sortMethod]?.toString().localeCompare(
         b[sortMethod]?.toString() ?? "",
       ) ?? 0;
@@ -160,12 +182,25 @@ export const slicePosts = (
   return posts.slice(startIndex, endIndex);
 };
 
+/**
+ * A record without a slug has no route, so it can never be rendered: listing it
+ * only produces cards linking to the listing itself. Dropped here, before
+ * slicePosts, so `count` still yields `count` renderable posts.
+ */
+export const filterRoutablePosts = (posts: BlogPost[]) =>
+  // Records come straight from the CMS, so `slug` is only a string by
+  // convention: the typeof guard keeps a malformed one from throwing here and
+  // taking the whole listing down with it.
+  posts.filter(({ slug }) => typeof slug === "string" && slug.trim());
+
 const filterPosts = (
-  posts: BlogPost[],
+  allPosts: BlogPost[],
   slug?: string | string[],
   postSlugs?: string[],
   term?: string,
 ): BlogPost[] => {
+  const posts = filterRoutablePosts(allPosts);
+
   if (typeof slug === "string") {
     const firstFilter = postSlugs && postSlugs.length > 0
       ? filterPostsBySlugs(posts, postSlugs)
@@ -210,6 +245,7 @@ export default async function handlePosts(
   if (!filteredPosts || filteredPosts.length === 0) {
     return null;
   }
+  const sorted = await sortPosts(filteredPosts, sortBy, ctx);
 
-  return await sortPosts(filteredPosts, sortBy, ctx);
+  return sorted;
 }
