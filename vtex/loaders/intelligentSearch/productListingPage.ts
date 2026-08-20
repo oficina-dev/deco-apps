@@ -486,15 +486,48 @@ export const cacheKey = (props: Props, req: Request, ctx: AppContext) => {
       url.searchParams.get("simulationBehavior") || props.simulationBehavior ||
       "default",
     ],
+    // Both change the payload — priceFacets adds the price facets (see the
+    // fselected branch), similars attaches isSimilarTo to every product — and
+    // neither is reachable from the URL. Since the loader cache is now keyed by
+    // the module, two callers of this same loader are separated by nothing but
+    // this key, so every prop that changes the result has to be in it.
+    ["priceFacets", (props.priceFacets ?? false).toString()],
+    ["similars", (props.similars ?? false).toString()],
   ]);
   url.searchParams.forEach((value, key) => {
     if (!ALLOWED_PARAMS.has(key.toLowerCase()) && !isFilterParam(key)) {
       return;
     }
+    // Case is preserved on purpose, even though the test above is
+    // case-insensitive. The loader reads `PS` and `O` uppercase and `q`
+    // lowercase, all case-sensitive, and none of the three is echoed by the
+    // props block above — so folding `?PS=24` onto `?ps=24` would hand one page
+    // size the other's entry. `?PAGE=1` keeping its own entry is a wasted hit;
+    // folding these would be wrong data.
     params.append(key, value);
   });
   params.sort();
-  url.search = params.toString();
+
+  // The block above re-appends params that were already computed from props a
+  // few lines up, so `?page=1` in the URL yields `page=1&page=1` while its
+  // absence yields `page=1` — two keys for one state, and a measured 1907ms miss
+  // where there should be a 12ms hit. Dropping exact duplicate (key,value) pairs
+  // is neutral by construction: a repeated identical pair carries no state that
+  // the first one does not. Anything that genuinely repeats with *different*
+  // values — filter.colors=azul&filter.colors=verde — survives untouched, which
+  // is why this is a dedup and not a `set`.
+  const deduped = new URLSearchParams();
+  let previous: string | null = null;
+  for (const [key, value] of params) {
+    const pair = `${key}=${value}`;
+    if (pair === previous) {
+      continue;
+    }
+    previous = pair;
+    deduped.append(key, value);
+  }
+
+  url.search = deduped.toString();
   return url.href;
 };
 export default loader;
