@@ -27,6 +27,14 @@ export interface Props {
    */
   indexingSkus?: boolean;
   /**
+   * @title Page href
+   * @description Canonical page URL to key the cache by. Same contract as
+   * intelligentSearch/productListingPage: without it a call through
+   * /live/invoke keys by its own URL and can never share the entry the page
+   * render produced.
+   */
+  pageHref?: string;
+  /**
    * @title Advanced Configuration
    * @description Further change loader behaviour
    */
@@ -117,21 +125,39 @@ async function loader(
 export const cache = "stale-while-revalidate";
 
 export const cacheKey = (props: Props, req: Request, ctx: AppContext) => {
-  const url = new URL(req.url);
+  const reqUrl = new URL(req.url);
 
-  if (url.searchParams.has("ft")) {
+  if (reqUrl.searchParams.has("ft")) {
     return null;
   }
+
+  // props.pageHref first, like productListingPage does: the page render and a
+  // /live/invoke call for the same product have different request URLs, so
+  // keying by req.url alone gives each caller its own entry for identical data.
+  const url = new URL(props.pageHref || req.url);
 
   const segment = ctx.advancedConfigs?.removeUTMFromCacheKey
     ? getSegmentCacheKeyWithoutUTM(ctx)
     : getSegmentFromBag(ctx)?.token;
-  const skuId = url.searchParams.get("skuId") ?? "";
+  const skuId = reqUrl.searchParams.get("skuId") ?? "";
 
+  // Every prop that changes the payload belongs here. `similars` toggles
+  // withIsSimilarTo below, so leaving it out let whoever asked first decide
+  // whether isSimilarTo existed for everyone else until the entry expired.
   const params = new URLSearchParams([
     ["slug", props.slug],
     ["segment", segment ?? ""],
     ["skuId", skuId],
+    ["similars", String(props.similars ?? false)],
+    ["indexingSkus", String(props.indexingSkus ?? false)],
+    [
+      "preferDescription",
+      String(props.advancedConfigs?.preferDescription ?? false),
+    ],
+    [
+      "originalAttrs",
+      (props.advancedConfigs?.includeOriginalAttributes ?? []).join(","),
+    ],
   ]);
 
   params.sort();
