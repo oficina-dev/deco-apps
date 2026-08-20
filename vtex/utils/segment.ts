@@ -88,6 +88,30 @@ export const setOrderFormIdInBag = (
 ) => ctx?.bag?.set(ORDER_FORM_ID, orderFormId);
 
 /**
+ * btoa only accepts latin1 and THROWS on anything above it. The segment reaches
+ * it from an attacker-controlled cookie: a `\uXXXX` escape in the cookie's JSON
+ * survives atob + JSON.parse as a real code point above 0xFF and reaches btoa
+ * from there. (The `?sc=` query param is fenced off at the source instead — see
+ * buildSegmentFromRequest — because it also feeds the VTEXSC cookie.)
+ *
+ * That matters because `serialize` runs in the app middleware, on every request,
+ * and `getSegmentCacheKeyWithoutUTM` runs inside `cacheKey`, which the runtime
+ * calls outside its try — so a throw in either is a 500.
+ *
+ * Escaping back to ASCII keeps btoa in range without touching the value: the
+ * round-trip through atob + JSON.parse yields the exact same string, and a
+ * segment that was already ASCII serializes byte-for-byte as before, so no cache
+ * entry is invalidated by this change.
+ */
+const toBase64 = (value: unknown) =>
+  btoa(
+    JSON.stringify(value).replace(
+      /[\u0080-\uffff]/g,
+      (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
+    ),
+  );
+
+/**
  * Creates a stable cache key from segment that only includes business-critical fields.
  * Excludes marketing/tracking parameters (UTM, UTMI) to prevent cache fragmentation.
  *
@@ -115,7 +139,7 @@ export const getSegmentCacheKeyWithoutUTM = (ctx: AppContext): string => {
   };
 
   // Stable serialization for consistent cache keys
-  return btoa(JSON.stringify(cacheRelevantSegment));
+  return toBase64(cacheRelevantSegment);
 };
 /**
  * Stable serialization.
@@ -160,7 +184,7 @@ const serialize = ({
     cultureInfo,
     channelPrivacy,
   };
-  return btoa(JSON.stringify(seg));
+  return toBase64(seg);
 };
 
 const parse = (cookie: string) => {
@@ -190,8 +214,12 @@ export const buildSegmentFromRequest = (req: Request): Partial<Segment> => {
     }
   }
 
+  // A sales channel is a VTEX integer id. Take it only in that shape: the raw
+  // query value ends up in the VTEXSC cookie below, and setCookie rejects
+  // anything outside US-ASCII by throwing — in the app middleware, which runs on
+  // every request, so `?sc=<emoji>` on any URL would 500 the whole page.
   const sc = url.searchParams.get("sc");
-  if (sc) {
+  if (sc && /^\d+$/.test(sc)) {
     partialSegment.channel = sc;
   }
 
