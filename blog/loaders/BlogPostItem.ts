@@ -1,5 +1,5 @@
 import { AppContext } from "../mod.ts";
-import { BlogPost } from "../types.ts";
+import { BlogPost, isPublishedStatus } from "../types.ts";
 import { getRecordsByPath } from "../core/records.ts";
 import type { RequestURLParam } from "../../website/functions/requestToParam.ts";
 
@@ -32,5 +32,16 @@ export default async function BlogPostItem(
     ACCESSOR,
   );
 
-  return posts.find((post) => post.slug === slug) || null;
+  const post = posts.find((post) => post.slug === slug);
+
+  if (!post) {
+    return null;
+  }
+
+  // An unpublished post is still served — that page *is* the CMS preview — it
+  // just must never be indexed. Everything else the post declared under `seo`
+  // is kept as-is.
+  return isPublishedStatus(post.status)
+    ? post
+    : { ...post, seo: { ...post.seo, noIndexing: true } };
 }

@@ -1,5 +1,5 @@
 import { AppContext } from "../mod.ts";
-import { BlogPost, BlogPostPage } from "../types.ts";
+import { BlogPost, BlogPostPage, isPublishedStatus } from "../types.ts";
 import { getRecordsByPath } from "../core/records.ts";
 import type { RequestURLParam } from "../../website/functions/requestToParam.ts";
 
@@ -47,7 +47,9 @@ export default async function BlogPostPageLoader(
       description: post?.seo?.description || post?.excerpt,
       canonical: post?.seo?.canonical || url.href,
       image: post?.seo?.image || post?.image,
-      noIndexing: post?.seo?.noIndexing || false,
+      // An unpublished post still renders — that page *is* the CMS preview —
+      // it just must never be indexed, even if the URL leaks.
+      noIndexing: post?.seo?.noIndexing || !isPublishedStatus(post.status),
     },
   };
 }
