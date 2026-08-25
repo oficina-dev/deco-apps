@@ -125,9 +125,14 @@ export const getSegmentCacheKeyWithoutUTM = (ctx: AppContext): string => {
   }
 
   // Only include fields that affect pricing, inventory, or content
+  //
+  // `channel` is deliberately absent. This storefront serves the website on
+  // trade policy 1 and the mobile app on policy 5, and the two mirror each
+  // other, so keying by the channel split one entry in two for byte-identical
+  // payloads — and the app reaches these loaders over /live/invoke carrying its
+  // own vtex_segment, so every shared path paid the fetch twice.
   const cacheRelevantSegment = {
     campaigns: segment.campaigns, // VTEX campaigns (can affect pricing)
-    channel: segment.channel, // Sales channel (affects inventory/pricing)
     priceTables: segment.priceTables, // Price tables (affects pricing)
     regionId: segment.regionId, // Region (can affect pricing/inventory)
     currencyCode: segment.currencyCode, // Currency
