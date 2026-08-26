@@ -138,13 +138,30 @@ export const getSegmentCacheKeyWithoutUTM = (ctx: AppContext): string => {
     currencyCode: segment.currencyCode, // Currency
     cultureInfo: segment.cultureInfo, // Locale/language
     countryCode: segment.countryCode, // Country
-    channelPrivacy: segment.channelPrivacy, // Privacy settings
+    // Privacy settings. The default arrives spelled out — VTEX mints
+    // `"public"` while DEFAULT_SEGMENT omits the field — so only `"private"`
+    // earns an entry of its own.
+    channelPrivacy: segment.channelPrivacy === "public"
+      ? undefined
+      : segment.channelPrivacy,
     // EXCLUDED: utm_campaign, utm_source, utm_medium (marketing only)
     // EXCLUDED: utmi_campaign, utmi_page, utmi_part (VTEX tracking only)
   };
 
-  // Stable serialization for consistent cache keys
-  return toBase64(cacheRelevantSegment);
+  // Absent, null and "" are one state, so they have to serialize as one.
+  // DEFAULT_SEGMENT carries no campaigns, priceTables, regionId or
+  // channelPrivacy, so the anonymous bag omits them entirely, while a shopper
+  // carrying a VTEX-minted vtex_segment sends them as null — same truth, two
+  // keys. The mobile app always carries that cookie, so every entry it shares
+  // with the anonymous SSR of the website depended on it. Same predicate the
+  // storefront applies on its own half of the key.
+  return toBase64(
+    Object.fromEntries(
+      Object.entries(cacheRelevantSegment).filter(([, value]) =>
+        Boolean(value)
+      ),
+    ),
+  );
 };
 /**
  * Stable serialization.
