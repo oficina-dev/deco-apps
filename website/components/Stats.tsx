@@ -52,16 +52,20 @@ export interface Props {
 }
 
 export default function Stats({ origin = "", siteKey, defer }: Props) {
-  const src = `${origin}/_dq/a.js${siteKey ? `?k=${encodeURIComponent(siteKey)}` : ""}`;
+  const src = `${origin}/_dq/a.js${
+    siteKey ? `?k=${encodeURIComponent(siteKey)}` : ""
+  }`;
   return (
     <Head>
       {/* Only when the collector is on another origin. Preconnecting to our own is noise. */}
       {origin ? <link rel="preconnect" href={origin} /> : null}
-      {/*
+      {
+        /*
         `async`, and nothing on the page waits on it. A failure here has to degrade to
         "analytics stopped", never to "the page broke" — no island awaits this and no
         rendering path reads from it.
-      */}
+      */
+      }
       <script async={!defer} defer={defer} src={src} />
     </Head>
   );

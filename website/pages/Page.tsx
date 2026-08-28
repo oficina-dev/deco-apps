@@ -37,7 +37,8 @@ const ONEDOLLAR_STATIC_SCRIPT = Deno.env.get("ONEDOLLAR_STATIC_SCRIPT");
 // collector that turns itself on everywhere the moment this ships would start collecting
 // from sites nobody has registered, and every one of those events would resolve to no site
 // and be dropped — a lot of requests bought for nothing.
-const DECO_ANALYTICS_ENABLED = Deno.env.get("DECO_ANALYTICS_ENABLED") === "true";
+const DECO_ANALYTICS_ENABLED =
+  Deno.env.get("DECO_ANALYTICS_ENABLED") === "true";
 // Empty means same-origin, which is the first-party path and the default we want. Set it
 // only for a site that is not behind our CDN.
 const DECO_ANALYTICS_ORIGIN = Deno.env.get("DECO_ANALYTICS_ORIGIN") ?? "";
@@ -163,12 +164,14 @@ function Page(
             staticScriptUrl={ONEDOLLAR_STATIC_SCRIPT}
           />
         )}
-        {/*
+        {
+          /*
           Deliberately INDEPENDENT of the gate above, so both can run at once. Comparing two
           collectors on the same traffic is the only way to know whether the new one agrees
           with the incumbent, and that comparison is the point of the migration — making this
           an either/or would force the switch to be a leap.
-        */}
+        */
+        }
         {DECO_ANALYTICS_ENABLED && (
           <Stats origin={DECO_ANALYTICS_ORIGIN} siteKey={DECO_ANALYTICS_KEY} />
         )}
