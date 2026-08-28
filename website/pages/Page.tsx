@@ -18,6 +18,7 @@ import { Component, JSX } from "preact";
 import ErrorPageComponent from "../../utils/defaultErrorPage.tsx";
 import { DefaultImageQualityContext } from "../components/Image.tsx";
 import OneDollarStats from "../components/OneDollarStats.tsx";
+import Stats from "../components/Stats.tsx";
 import Events from "../components/Events.tsx";
 import { SEOSection } from "../components/Seo.tsx";
 import LiveControls from "../components/_Controls.tsx";
@@ -28,6 +29,20 @@ const noIndexedDomains = ["decocdn.com", "deco.site", "deno.dev"];
 const ONEDOLLAR_ENABLED = Deno.env.get("ONEDOLLAR_ENABLED") !== "false";
 const ONEDOLLAR_COLLECTOR = Deno.env.get("ONEDOLLAR_COLLECTOR");
 const ONEDOLLAR_STATIC_SCRIPT = Deno.env.get("ONEDOLLAR_STATIC_SCRIPT");
+
+// Deco Analytics, gated the same way its predecessor is, for the same reason: enabling a
+// collector is a fleet decision, not something to configure per site in the CMS.
+//
+// OFF BY DEFAULT, unlike ONEDOLLAR_ENABLED which is on unless explicitly "false". A new
+// collector that turns itself on everywhere the moment this ships would start collecting
+// from sites nobody has registered, and every one of those events would resolve to no site
+// and be dropped — a lot of requests bought for nothing.
+const DECO_ANALYTICS_ENABLED = Deno.env.get("DECO_ANALYTICS_ENABLED") === "true";
+// Empty means same-origin, which is the first-party path and the default we want. Set it
+// only for a site that is not behind our CDN.
+const DECO_ANALYTICS_ORIGIN = Deno.env.get("DECO_ANALYTICS_ORIGIN") ?? "";
+// Only for a site we do not host. Public by construction — it ships in the script tag.
+const DECO_ANALYTICS_KEY = Deno.env.get("DECO_ANALYTICS_KEY");
 
 /**
  * @title Sections
@@ -147,6 +162,15 @@ function Page(
             collectorAddress={ONEDOLLAR_COLLECTOR}
             staticScriptUrl={ONEDOLLAR_STATIC_SCRIPT}
           />
+        )}
+        {/*
+          Deliberately INDEPENDENT of the gate above, so both can run at once. Comparing two
+          collectors on the same traffic is the only way to know whether the new one agrees
+          with the incumbent, and that comparison is the point of the migration — making this
+          an either/or would force the switch to be a leap.
+        */}
+        {DECO_ANALYTICS_ENABLED && (
+          <Stats origin={DECO_ANALYTICS_ORIGIN} siteKey={DECO_ANALYTICS_KEY} />
         )}
         {sections?.map(renderSection)}
       </ErrorBoundary>
