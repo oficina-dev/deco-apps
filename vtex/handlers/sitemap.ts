@@ -64,20 +64,20 @@ const rewriteHost = (xml: string, publicUrl: string, origin: string) => {
 };
 
 /**
- * Turns a deco page path into a matcher: ":param" stands for a single segment
- * and a trailing "*" for any suffix.
+ * Builds the very same URLPattern the router builds for a route, so that a URL
+ * is kept if and only if the router would have a page for it. Hand-rolling the
+ * match instead diverges on case, on trailing slashes and on percent-encoding —
+ * see website/handlers/router.ts.
  */
-const toPathMatcher = (pathTemplate: string) => {
-  const pattern = pathTemplate
-    .split("/")
-    .map((segment) => {
-      if (segment === "*") return "[^]*";
-      if (segment.startsWith(":")) return "[^/]+";
-      return escapeRegExp(segment);
-    })
-    .join("/");
+const toRouteMatcher = (pathTemplate: string) => {
+  const url = URL.canParse(pathTemplate)
+    ? new URL(pathTemplate)
+    : new URL(pathTemplate, "http://localhost:8000");
 
-  return new RegExp(`^${pattern}/?$`, "i");
+  return new URLPattern({
+    pathname: url.pathname,
+    ...(url.search ? { search: url.search } : {}),
+  });
 };
 
 /**
@@ -85,7 +85,7 @@ const toPathMatcher = (pathTemplate: string) => {
  * out on purpose: it matches every path, so counting it would make the filter
  * below inert and let orphan entries through.
  */
-const getPageMatchers = async (ctx: AppContext): Promise<RegExp[]> => {
+const getPageMatchers = async (ctx: AppContext): Promise<URLPattern[]> => {
   const pages = await ctx.get<Record<string, { path?: string }>>({
     type: "pages",
     __resolveType: "blockSelector",
@@ -94,7 +94,13 @@ const getPageMatchers = async (ctx: AppContext): Promise<RegExp[]> => {
   return Object.values(pages ?? {})
     .map(({ path }) => path)
     .filter((path): path is string => Boolean(path) && path !== "/*")
-    .map(toPathMatcher);
+    .flatMap((path) => {
+      try {
+        return [toRouteMatcher(path)];
+      } catch {
+        return [];
+      }
+    });
 };
 
 /**
@@ -106,22 +112,21 @@ const getPageMatchers = async (ctx: AppContext): Promise<RegExp[]> => {
  */
 const filterEntriesWithoutPage = (
   xml: string,
-  matchers: RegExp[],
-): { xml: string; dropped: string[] } => {
+  matchers: URLPattern[],
+): { xml: string; kept: number; dropped: string[] } => {
   const dropped: string[] = [];
+  let kept = 0;
 
   const filtered = xml.replace(
     /<url>\s*<loc>([^<]*)<\/loc>[\s\S]*?<\/url>\s*/gi,
     (block, loc: string) => {
-      let pathname: string;
-
-      try {
-        pathname = new URL(loc).pathname;
-      } catch {
+      if (!URL.canParse(loc)) {
+        kept += 1;
         return block;
       }
 
-      if (matchers.some((matcher) => matcher.test(pathname))) {
+      if (matchers.some((matcher) => matcher.exec(loc) !== null)) {
+        kept += 1;
         return block;
       }
 
@@ -130,7 +135,7 @@ const filterEntriesWithoutPage = (
     },
   );
 
-  return { xml: filtered, dropped };
+  return { xml: filtered, kept, dropped };
 };
 
 export interface Props {
@@ -191,11 +196,24 @@ export default function Sitemap(
     if (removeEntriesWithoutPage) {
       try {
         const matchers = await getPageMatchers(ctx);
+        const result = filterEntriesWithoutPage(filtered, matchers);
 
-        // No matchers means the page list could not be read. Filtering on that
-        // would empty the sitemap, so the entries are kept instead.
-        if (matchers.length > 0) {
-          const result = filterEntriesWithoutPage(filtered, matchers);
+        // Dropping every entry is a legitimate outcome of the rules above and
+        // an unrecoverable one: an empty sitemap withdraws the whole site from
+        // the index, and nothing downstream would notice. It is far likelier to
+        // mean the pages could not be read, so the entries are kept and said.
+        if (result.dropped.length > 0 && result.kept === 0) {
+          const message =
+            "Sitemap: refused to remove every entry, keeping the sitemap as is";
+          const data = JSON.stringify({
+            sitemap: reqUrl.pathname,
+            count: result.dropped.length,
+            pages: matchers.length,
+          });
+
+          console.error(message, data);
+          logger.error(message, { data });
+        } else {
           filtered = result.xml;
 
           if (result.dropped.length > 0) {
