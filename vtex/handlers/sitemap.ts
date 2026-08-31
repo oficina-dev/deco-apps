@@ -52,64 +52,18 @@ const escapeRegExp = (value: string) =>
  * host, and every <loc> has to be rewritten to the storefront's. Matching the
  * host rather than the configured URL keeps the rewrite working when the
  * platform emits a variation of it — http instead of https, or no trailing
- * slash — which would otherwise leak the platform host into the index.
+ * slash. The host has to end where the match does, or a neighbour such as
+ * "shop.example.com.br" gets rewritten through its prefix.
  */
 const rewriteHost = (xml: string, publicUrl: string, origin: string) => {
   const { host } = new URL(publicUrl);
 
   return xml.replace(
-    new RegExp(`https?://${escapeRegExp(host)}/?`, "gi"),
-    `${origin}/`,
+    new RegExp(`https?://${escapeRegExp(host)}(?::\\d+)?(?=[/?#]|$)`, "gi"),
+    origin,
   );
 };
 
-/**
- * Builds the very same URLPattern the router builds for a route, so that a URL
- * is kept if and only if the router would have a page for it. Hand-rolling the
- * match instead diverges on case, on trailing slashes and on percent-encoding —
- * see website/handlers/router.ts.
- */
-const toRouteMatcher = (pathTemplate: string) => {
-  const url = URL.canParse(pathTemplate)
-    ? new URL(pathTemplate)
-    : new URL(pathTemplate, "http://localhost:8000");
-
-  return new URLPattern({
-    pathname: url.pathname,
-    ...(url.search ? { search: url.search } : {}),
-  });
-};
-
-/**
- * Paths of every page that actually exists, as matchers. The catch-all is left
- * out on purpose: it matches every path, so counting it would make the filter
- * below inert and let orphan entries through.
- */
-const getPageMatchers = async (ctx: AppContext): Promise<URLPattern[]> => {
-  const pages = await ctx.get<Record<string, { path?: string }>>({
-    type: "pages",
-    __resolveType: "blockSelector",
-  });
-
-  return Object.values(pages ?? {})
-    .map(({ path }) => path)
-    .filter((path): path is string => Boolean(path) && path !== "/*")
-    .flatMap((path) => {
-      try {
-        return [toRouteMatcher(path)];
-      } catch {
-        return [];
-      }
-    });
-};
-
-/**
- * Drops <url> entries the storefront has no page for. The platform's category
- * tree and the storefront's pages are maintained by different teams, so a
- * category created upstream shows up here before anyone has built its page —
- * and, with no page to serve it, answers 404. Announcing such a URL to crawlers
- * is worse than omitting it; it comes back on its own once the page exists.
- */
 const XML_ENTITIES: Record<string, string> = {
   "&amp;": "&",
   "&lt;": "<",
@@ -121,7 +75,7 @@ const XML_ENTITIES: Record<string, string> = {
 /**
  * A <loc> holds XML, so its URL arrives entity-encoded: the router would be
  * handed "?a=1&b=2" where the document says "?a=1&amp;b=2". Comparing the raw
- * text drops pages whose URL carries more than one query parameter.
+ * text flags pages whose URL carries more than one query parameter.
  */
 const decodeXmlEntities = (value: string) =>
   value.replace(
@@ -133,34 +87,133 @@ const decodeXmlEntities = (value: string) =>
     },
   );
 
-const filterEntriesWithoutPage = (
+/**
+ * A path the storefront cannot plausibly own. A route matching it is a
+ * catch-all — the router normalizes "/*", "/(.*)" and an absolute
+ * "https://store.test/*" to the same thing, so probing what a route answers
+ * recognizes every spelling of it, which comparing the text does not.
+ */
+const CATCH_ALL_PROBE = "http://localhost:8000/1f5a5c0e-catch-all-probe/x";
+
+const PATTERN_SYNTAX = /[:*(){}+?[\]\\|]/;
+
+/** Builds the very same URLPattern the router builds — see website/handlers/router.ts. */
+const toRouteMatcher = (pathTemplate: string) => {
+  const url = URL.canParse(pathTemplate)
+    ? new URL(pathTemplate)
+    : new URL(pathTemplate, "http://localhost:8000");
+
+  return new URLPattern({
+    pathname: url.pathname,
+    ...(url.search ? { search: url.search } : {}),
+  });
+};
+
+interface RouteIndex {
+  /** Pathnames of routes with no pattern syntax, which are the vast majority. */
+  staticPaths: Set<string>;
+  /** Only the routes that genuinely need to be matched one by one. */
+  patterns: URLPattern[];
+  size: number;
+}
+
+/**
+ * Indexes the routes actually being served — after every transformation the
+ * loaders applied, which is what the router matches against, and what reading
+ * the page blocks directly would miss.
+ *
+ * Static paths go to a set so that a sitemap of tens of thousands of URLs does
+ * not walk hundreds of routes per entry; the sitemap protocol allows 50k URLs
+ * in a single file.
+ */
+const indexRoutes = (routes: { pathTemplate: string }[]): RouteIndex => {
+  const staticPaths = new Set<string>();
+  const patterns: URLPattern[] = [];
+
+  for (const { pathTemplate } of routes) {
+    if (!pathTemplate) continue;
+
+    try {
+      const matcher = toRouteMatcher(pathTemplate);
+
+      if (matcher.exec(CATCH_ALL_PROBE)) continue;
+
+      if (PATTERN_SYNTAX.test(pathTemplate)) {
+        patterns.push(matcher);
+        continue;
+      }
+
+      staticPaths.add(new URL(pathTemplate, "http://localhost:8000").pathname);
+    } catch {
+      // A route the router itself could not compile matches nothing.
+    }
+  }
+
+  return { staticPaths, patterns, size: staticPaths.size + patterns.length };
+};
+
+const isServedByARoute = (
+  loc: string,
+  { staticPaths, patterns }: RouteIndex,
+) => {
+  if (!URL.canParse(loc)) return true;
+
+  return staticPaths.has(new URL(loc).pathname) ||
+    patterns.some((pattern) => pattern.exec(loc) !== null);
+};
+
+/** Enough to act on without letting a large sitemap write megabytes of log. */
+const SAMPLE_SIZE = 20;
+
+/**
+ * Reports <url> entries no route answers. The platform's category tree and the
+ * storefront's pages are maintained by different teams, so a category created
+ * upstream shows up in this sitemap before anyone has built its page — and,
+ * with no page to serve it, answers 404. The document is left as it is; this
+ * only tells whoever can create the page that it is missing.
+ */
+const warnEntriesWithoutPage = (
   xml: string,
-  matchers: URLPattern[],
-): { xml: string; kept: number; dropped: string[] } => {
-  const dropped: string[] = [];
-  let kept = 0;
+  routes: { pathTemplate: string }[],
+  sitemap: string,
+) => {
+  const index = indexRoutes(routes);
 
-  const filtered = xml.replace(
-    /<url>\s*<loc>([^<]*)<\/loc>[\s\S]*?<\/url>\s*/gi,
-    (block, loc: string) => {
-      const url = decodeXmlEntities(loc);
+  // With no route to compare against, every entry would be reported. That says
+  // the routes could not be read, not that the site has no page.
+  if (index.size === 0) {
+    const message = "Sitemap: no route to check entries against";
+    const data = JSON.stringify({ sitemap });
 
-      if (!URL.canParse(url)) {
-        kept += 1;
-        return block;
-      }
+    console.error(message, data);
+    logger.error(message, { data });
+    return;
+  }
 
-      if (matchers.some((matcher) => matcher.exec(url) !== null)) {
-        kept += 1;
-        return block;
-      }
+  let count = 0;
+  const sample: string[] = [];
 
-      dropped.push(url);
-      return "";
-    },
-  );
+  for (const [, loc] of xml.matchAll(/<loc>([^<]*)<\/loc>/gi)) {
+    const url = decodeXmlEntities(loc);
 
-  return { xml: filtered, kept, dropped };
+    if (isServedByARoute(url, index)) continue;
+
+    count += 1;
+    if (sample.length < SAMPLE_SIZE) sample.push(url);
+  }
+
+  if (count === 0) return;
+
+  const message = "Sitemap: entries whose path no page answers";
+  const data = JSON.stringify({
+    sitemap,
+    count,
+    sample,
+    truncated: count > sample.length,
+  });
+
+  console.warn(message, data);
+  logger.warn(message, { data });
 };
 
 export interface Props {
@@ -171,20 +224,18 @@ export interface Props {
    */
   excludeSiteMapEntry?: string[];
   /**
-   * @title Remove URLs without a page
-   * @description Drops any <url> whose path has no page created, and logs it.
+   * @title Warn about URLs without a page
+   * @description Logs any <url> whose path no route answers. Does not change the sitemap.
    */
-  removeEntriesWithoutPage?: boolean;
+  warnOnEntriesWithoutPage?: boolean;
 }
 /**
  * @title Sitemap Proxy
  */
 export default function Sitemap(
-  { include, excludeSiteMapEntry, removeEntriesWithoutPage }: Props,
-  ctx: AppContext,
+  { include, excludeSiteMapEntry, warnOnEntriesWithoutPage }: Props,
+  { publicUrl: url, usePortalSitemap, account }: AppContext,
 ) {
-  const { publicUrl: url, usePortalSitemap, account } = ctx;
-
   return async (
     req: Request,
     connInfo: ConnInfo,
@@ -216,44 +267,17 @@ export default function Sitemap(
       include,
     );
 
-    let filtered = excludeSitemapEntries(withIncludes, excludeSiteMapEntry);
+    const filtered = excludeSitemapEntries(withIncludes, excludeSiteMapEntry);
 
-    if (removeEntriesWithoutPage) {
+    if (warnOnEntriesWithoutPage) {
       try {
-        const matchers = await getPageMatchers(ctx);
+        const { state } = connInfo as ConnInfo & {
+          state?: { routes?: { pathTemplate: string }[] };
+        };
 
-        // With no page to match against, every entry of every sitemap would be
-        // dropped — the site would withdraw itself from the index entirely. A
-        // store answering a sitemap while owning no page at all is not a real
-        // configuration, so this reads as a failure to list them, and the only
-        // safe move is to leave the document alone and say so.
-        if (matchers.length === 0) {
-          const message =
-            "Sitemap: no page found to match against, keeping the sitemap as is";
-          const data = JSON.stringify({ sitemap: reqUrl.pathname });
-
-          console.error(message, data);
-          logger.error(message, { data });
-        } else {
-          const result = filterEntriesWithoutPage(filtered, matchers);
-          filtered = result.xml;
-
-          if (result.dropped.length > 0) {
-            const message =
-              "Sitemap: entries removed because no page exists for them";
-            const data = JSON.stringify({
-              sitemap: reqUrl.pathname,
-              count: result.dropped.length,
-              kept: result.kept,
-              urls: result.dropped,
-            });
-
-            console.warn(message, data);
-            logger.warn(message, { data });
-          }
-        }
+        warnEntriesWithoutPage(filtered, state?.routes ?? [], reqUrl.pathname);
       } catch (error) {
-        const message = "Sitemap: failed to filter entries without a page";
+        const message = "Sitemap: failed to check entries against the routes";
         const data = JSON.stringify({
           sitemap: reqUrl.pathname,
           error: error instanceof Error ? error.message : String(error),
@@ -264,17 +288,10 @@ export default function Sitemap(
       }
     }
 
-    // The body was decoded and rewritten, so the upstream's framing headers no
-    // longer describe it: its length changed with every <loc>, and it is no
-    // longer the gzip stream the header claims.
-    const headers = new Headers(response.headers);
-    headers.delete("content-length");
-    headers.delete("content-encoding");
-
     return new Response(
       filtered,
       {
-        headers,
+        headers: response.headers,
         status: response.status,
       },
     );
