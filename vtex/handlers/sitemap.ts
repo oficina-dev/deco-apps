@@ -302,10 +302,19 @@ export default function Sitemap(
       }
     }
 
+    // The body is decoded and rewritten here, so the upstream's own framing and
+    // validators stop describing it: its length changes with every <loc>, it is
+    // no longer the gzip stream content-encoding announces, and its etag names
+    // the document as the platform wrote it, not as it is served.
+    const headers = new Headers(response.headers);
+    headers.delete("content-length");
+    headers.delete("content-encoding");
+    headers.delete("etag");
+
     return new Response(
       filtered,
       {
-        headers: response.headers,
+        headers,
         status: response.status,
       },
     );
