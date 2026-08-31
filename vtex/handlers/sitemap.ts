@@ -110,6 +110,29 @@ const getPageMatchers = async (ctx: AppContext): Promise<URLPattern[]> => {
  * and, with no page to serve it, answers 404. Announcing such a URL to crawlers
  * is worse than omitting it; it comes back on its own once the page exists.
  */
+const XML_ENTITIES: Record<string, string> = {
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&apos;": "'",
+};
+
+/**
+ * A <loc> holds XML, so its URL arrives entity-encoded: the router would be
+ * handed "?a=1&b=2" where the document says "?a=1&amp;b=2". Comparing the raw
+ * text drops pages whose URL carries more than one query parameter.
+ */
+const decodeXmlEntities = (value: string) =>
+  value.replace(
+    /&(?:amp|lt|gt|quot|apos|#(\d+)|#x([0-9a-f]+));/gi,
+    (entity, dec: string, hex: string) => {
+      if (dec) return String.fromCodePoint(Number(dec));
+      if (hex) return String.fromCodePoint(parseInt(hex, 16));
+      return XML_ENTITIES[entity.toLowerCase()] ?? entity;
+    },
+  );
+
 const filterEntriesWithoutPage = (
   xml: string,
   matchers: URLPattern[],
@@ -120,17 +143,19 @@ const filterEntriesWithoutPage = (
   const filtered = xml.replace(
     /<url>\s*<loc>([^<]*)<\/loc>[\s\S]*?<\/url>\s*/gi,
     (block, loc: string) => {
-      if (!URL.canParse(loc)) {
+      const url = decodeXmlEntities(loc);
+
+      if (!URL.canParse(url)) {
         kept += 1;
         return block;
       }
 
-      if (matchers.some((matcher) => matcher.exec(loc) !== null)) {
+      if (matchers.some((matcher) => matcher.exec(url) !== null)) {
         kept += 1;
         return block;
       }
 
-      dropped.push(loc);
+      dropped.push(url);
       return "";
     },
   );
@@ -196,24 +221,21 @@ export default function Sitemap(
     if (removeEntriesWithoutPage) {
       try {
         const matchers = await getPageMatchers(ctx);
-        const result = filterEntriesWithoutPage(filtered, matchers);
 
-        // Dropping every entry is a legitimate outcome of the rules above and
-        // an unrecoverable one: an empty sitemap withdraws the whole site from
-        // the index, and nothing downstream would notice. It is far likelier to
-        // mean the pages could not be read, so the entries are kept and said.
-        if (result.dropped.length > 0 && result.kept === 0) {
+        // With no page to match against, every entry of every sitemap would be
+        // dropped — the site would withdraw itself from the index entirely. A
+        // store answering a sitemap while owning no page at all is not a real
+        // configuration, so this reads as a failure to list them, and the only
+        // safe move is to leave the document alone and say so.
+        if (matchers.length === 0) {
           const message =
-            "Sitemap: refused to remove every entry, keeping the sitemap as is";
-          const data = JSON.stringify({
-            sitemap: reqUrl.pathname,
-            count: result.dropped.length,
-            pages: matchers.length,
-          });
+            "Sitemap: no page found to match against, keeping the sitemap as is";
+          const data = JSON.stringify({ sitemap: reqUrl.pathname });
 
           console.error(message, data);
           logger.error(message, { data });
         } else {
+          const result = filterEntriesWithoutPage(filtered, matchers);
           filtered = result.xml;
 
           if (result.dropped.length > 0) {
@@ -222,6 +244,7 @@ export default function Sitemap(
             const data = JSON.stringify({
               sitemap: reqUrl.pathname,
               count: result.dropped.length,
+              kept: result.kept,
               urls: result.dropped,
             });
 
@@ -241,10 +264,17 @@ export default function Sitemap(
       }
     }
 
+    // The body was decoded and rewritten, so the upstream's framing headers no
+    // longer describe it: its length changed with every <loc>, and it is no
+    // longer the gzip stream the header claims.
+    const headers = new Headers(response.headers);
+    headers.delete("content-length");
+    headers.delete("content-encoding");
+
     return new Response(
       filtered,
       {
-        headers: response.headers,
+        headers,
         status: response.status,
       },
     );
