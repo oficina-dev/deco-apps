@@ -235,6 +235,18 @@ const dropEntriesWithoutPage = (
   return filtered;
 };
 
+/**
+ * What is still true of a document this handler rewrote. Everything else the
+ * upstream sent describes bytes that no longer exist — the length, the gzip
+ * encoding already undone by reading the body, the validators naming the
+ * platform's version rather than the served one, and the range support offered
+ * over offsets into a different document. The server frames its own response.
+ */
+const FORWARDED_HEADERS = ["content-type", "cache-control", "vary"];
+
+/** Statuses whose response carries no body, which must not be rebuilt. */
+const BODILESS_STATUSES = new Set([204, 205, 304]);
+
 export interface Props {
   include?: string[];
   /**
@@ -277,6 +289,12 @@ export default function Sitemap(
       url: publicUrl,
     })(req, connInfo);
 
+    // A conditional request the upstream answered with "unchanged" has no body
+    // to rewrite, and building one for it throws. It goes back as it came.
+    if (BODILESS_STATUSES.has(response.status)) {
+      return response;
+    }
+
     const reqUrl = new URL(req.url);
     const text = await response.text();
 
@@ -311,14 +329,12 @@ export default function Sitemap(
       }
     }
 
-    // The body is decoded and rewritten here, so the upstream's own framing and
-    // validators stop describing it: its length changes with every <loc>, it is
-    // no longer the gzip stream content-encoding announces, and its etag names
-    // the document as the platform wrote it, not as it is served.
-    const headers = new Headers(response.headers);
-    headers.delete("content-length");
-    headers.delete("content-encoding");
-    headers.delete("etag");
+    const headers = new Headers();
+
+    for (const header of FORWARDED_HEADERS) {
+      const value = response.headers.get(header);
+      if (value !== null) headers.set(header, value);
+    }
 
     return new Response(
       filtered,
