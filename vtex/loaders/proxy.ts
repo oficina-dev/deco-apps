@@ -65,7 +65,7 @@ const buildProxyRoutes = (
     generateDecoSiteMap,
     excludePathsFromDecoSiteMap,
     excludeSiteMapEntry,
-    warnOnEntriesWithoutPage,
+    removeEntriesWithoutPage,
     includeScriptsToHead,
     includeScriptsToBody,
   }: {
@@ -77,7 +77,7 @@ const buildProxyRoutes = (
     generateDecoSiteMap?: boolean;
     excludePathsFromDecoSiteMap: string[];
     excludeSiteMapEntry?: string[];
-    warnOnEntriesWithoutPage?: boolean;
+    removeEntriesWithoutPage?: boolean;
     includeScriptsToHead?: {
       includes?: Script[];
     };
@@ -164,7 +164,7 @@ const buildProxyRoutes = (
           value: {
             include,
             excludeSiteMapEntry,
-            warnOnEntriesWithoutPage,
+            removeEntriesWithoutPage,
             __resolveType: "vtex/handlers/sitemap.ts",
           },
         },
@@ -173,7 +173,7 @@ const buildProxyRoutes = (
         pathTemplate: "/sitemap/*",
         handler: {
           value: {
-            warnOnEntriesWithoutPage,
+            removeEntriesWithoutPage,
             __resolveType: "vtex/handlers/sitemap.ts",
           },
         },
@@ -216,10 +216,10 @@ export interface Props {
    */
   excludeSiteMapEntry?: string[];
   /**
-   * @title Warn about URLs without a page
-   * @description Logs any &lt;url&gt; whose path no route answers. Does not change the sitemap.
+   * @title Remove URLs without a page
+   * @description Drops any &lt;url&gt; whose path no route answers, and logs it.
    */
-  warnOnEntriesWithoutPage?: boolean;
+  removeEntriesWithoutPage?: boolean;
   /**
    * @title Scripts to include on Html head
    */
@@ -247,7 +247,7 @@ function loader(
     generateDecoSiteMap = true,
     excludePathsFromDecoSiteMap = [],
     excludeSiteMapEntry = [],
-    warnOnEntriesWithoutPage,
+    removeEntriesWithoutPage,
     includeScriptsToHead = { includes: [] },
     includeScriptsToBody = { includes: [] },
   }: Props,
@@ -258,7 +258,7 @@ function loader(
     generateDecoSiteMap,
     excludePathsFromDecoSiteMap,
     excludeSiteMapEntry,
-    warnOnEntriesWithoutPage,
+    removeEntriesWithoutPage,
     includeSiteMap,
     includeSiteMapWithHandler,
     includePathToDecoSitemap,

@@ -88,12 +88,12 @@ const decodeXmlEntities = (value: string) =>
   );
 
 /**
- * A path the storefront cannot plausibly own. A route matching it is a
- * catch-all — the router normalizes "/*", "/(.*)" and an absolute
- * "https://store.test/*" to the same thing, so probing what a route answers
- * recognizes every spelling of it, which comparing the text does not.
+ * The pathname URLPattern normalizes every spelling of a catch-all to: "/*",
+ * "*", "/(.*)" and an absolute "https://store.test/*" all end up here. Probing
+ * a route with some improbable path would instead catch any route of the same
+ * shape — "/:department/:category" answers two segments of anything.
  */
-const CATCH_ALL_PROBE = "http://localhost:8000/1f5a5c0e-catch-all-probe/x";
+const CATCH_ALL_PATHNAME = "/*";
 
 const PATTERN_SYNTAX = /[:*(){}+?[\]\\|]/;
 
@@ -136,7 +136,7 @@ const indexRoutes = (routes: { pathTemplate: string }[]): RouteIndex => {
     try {
       const matcher = toRouteMatcher(pathTemplate);
 
-      if (matcher.exec(CATCH_ALL_PROBE)) continue;
+      if (matcher.pathname === CATCH_ALL_PATHNAME) continue;
 
       if (PATTERN_SYNTAX.test(pathTemplate)) {
         patterns.push(matcher);
@@ -166,13 +166,17 @@ const isServedByARoute = (
 const SAMPLE_SIZE = 20;
 
 /**
- * Reports <url> entries no route answers. The platform's category tree and the
- * storefront's pages are maintained by different teams, so a category created
- * upstream shows up in this sitemap before anyone has built its page — and,
- * with no page to serve it, answers 404. The document is left as it is; this
- * only tells whoever can create the page that it is missing.
+ * Drops the <url> entries no route answers. The platform's category tree and
+ * the storefront's pages are maintained by different teams, so a category
+ * created upstream shows up in this sitemap before anyone has built its page —
+ * and, with no page to serve it, answers 404. Announcing such a URL to crawlers
+ * is worse than omitting it; it comes back on its own once the page exists.
+ *
+ * Only <url> blocks are considered, never the <sitemap> blocks of an index:
+ * those name documents rather than pages, and an external sitemap added
+ * through `include` is a valid entry no route of this site answers.
  */
-const warnEntriesWithoutPage = (
+const dropEntriesWithoutPage = (
   xml: string,
   routes: { pathTemplate: string }[],
   sitemap: string,
@@ -187,24 +191,28 @@ const warnEntriesWithoutPage = (
 
     console.error(message, data);
     logger.error(message, { data });
-    return;
+    return xml;
   }
 
   let count = 0;
   const sample: string[] = [];
 
-  for (const [, loc] of xml.matchAll(/<loc>([^<]*)<\/loc>/gi)) {
-    const url = decodeXmlEntities(loc);
+  const filtered = xml.replace(
+    /<url>\s*<loc>([^<]*)<\/loc>[\s\S]*?<\/url>\s*/gi,
+    (block, loc: string) => {
+      const url = decodeXmlEntities(loc);
 
-    if (isServedByARoute(url, index)) continue;
+      if (isServedByARoute(url, index)) return block;
 
-    count += 1;
-    if (sample.length < SAMPLE_SIZE) sample.push(url);
-  }
+      count += 1;
+      if (sample.length < SAMPLE_SIZE) sample.push(url);
+      return "";
+    },
+  );
 
-  if (count === 0) return;
+  if (count === 0) return xml;
 
-  const message = "Sitemap: entries whose path no page answers";
+  const message = "Sitemap: entries removed because no page answers their path";
   const data = JSON.stringify({
     sitemap,
     count,
@@ -214,6 +222,8 @@ const warnEntriesWithoutPage = (
 
   console.warn(message, data);
   logger.warn(message, { data });
+
+  return filtered;
 };
 
 export interface Props {
@@ -224,16 +234,16 @@ export interface Props {
    */
   excludeSiteMapEntry?: string[];
   /**
-   * @title Warn about URLs without a page
-   * @description Logs any <url> whose path no route answers. Does not change the sitemap.
+   * @title Remove URLs without a page
+   * @description Drops any <url> whose path no route answers, and logs it.
    */
-  warnOnEntriesWithoutPage?: boolean;
+  removeEntriesWithoutPage?: boolean;
 }
 /**
  * @title Sitemap Proxy
  */
 export default function Sitemap(
-  { include, excludeSiteMapEntry, warnOnEntriesWithoutPage }: Props,
+  { include, excludeSiteMapEntry, removeEntriesWithoutPage }: Props,
   { publicUrl: url, usePortalSitemap, account }: AppContext,
 ) {
   return async (
@@ -267,15 +277,19 @@ export default function Sitemap(
       include,
     );
 
-    const filtered = excludeSitemapEntries(withIncludes, excludeSiteMapEntry);
+    let filtered = excludeSitemapEntries(withIncludes, excludeSiteMapEntry);
 
-    if (warnOnEntriesWithoutPage) {
+    if (removeEntriesWithoutPage) {
       try {
         const { state } = connInfo as ConnInfo & {
           state?: { routes?: { pathTemplate: string }[] };
         };
 
-        warnEntriesWithoutPage(filtered, state?.routes ?? [], reqUrl.pathname);
+        filtered = dropEntriesWithoutPage(
+          filtered,
+          state?.routes ?? [],
+          reqUrl.pathname,
+        );
       } catch (error) {
         const message = "Sitemap: failed to check entries against the routes";
         const data = JSON.stringify({
