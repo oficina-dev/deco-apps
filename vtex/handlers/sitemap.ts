@@ -244,9 +244,6 @@ const dropEntriesWithoutPage = (
  */
 const FORWARDED_HEADERS = ["content-type", "cache-control", "vary"];
 
-/** Statuses whose response carries no body, which must not be rebuilt. */
-const BODILESS_STATUSES = new Set([204, 205, 304]);
-
 export interface Props {
   include?: string[];
   /**
@@ -289,9 +286,12 @@ export default function Sitemap(
       url: publicUrl,
     })(req, connInfo);
 
-    // A conditional request the upstream answered with "unchanged" has no body
-    // to rewrite, and building one for it throws. It goes back as it came.
-    if (BODILESS_STATUSES.has(response.status)) {
+    // Only a complete document can be rewritten as one. A 304 carries no body
+    // and handing one to a Response throws; a 206 carries a fragment that is
+    // not a sitemap; a redirect and an error say nothing about pages, and both
+    // depend on headers a rewritten response would not carry — Location among
+    // them. Anything but a 200 goes back exactly as it came.
+    if (response.status !== 200) {
       return response;
     }
 
