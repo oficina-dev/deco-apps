@@ -88,12 +88,21 @@ const decodeXmlEntities = (value: string) =>
   );
 
 /**
- * The pathname URLPattern normalizes every spelling of a catch-all to: "/*",
- * "*", "/(.*)" and an absolute "https://store.test/*" all end up here. Probing
- * a route with some improbable path would instead catch any route of the same
- * shape — "/:department/:category" answers two segments of anything.
+ * What tells a catch-all apart from any other route is that it answers paths of
+ * differing depth. Comparing the normalized pathname to "/*" misses the named
+ * spellings, "/:path(.*)" and "/:path*", which normalize to themselves; probing
+ * a single path instead catches routes of that very shape, since
+ * "/:department/:category" does answer two segments of anything. Only a route
+ * answering all three of these is one no URL can fail to match.
  */
-const CATCH_ALL_PATHNAME = "/*";
+const CATCH_ALL_PROBES = [
+  "http://localhost:8000/9d2f7b1e-probe",
+  "http://localhost:8000/9d2f7b1e-probe/a",
+  "http://localhost:8000/9d2f7b1e-probe/a/b/c",
+];
+
+const isCatchAll = (matcher: URLPattern) =>
+  CATCH_ALL_PROBES.every((probe) => matcher.exec(probe) !== null);
 
 const PATTERN_SYNTAX = /[:*(){}+?[\]\\|]/;
 
@@ -136,7 +145,7 @@ const indexRoutes = (routes: { pathTemplate: string }[]): RouteIndex => {
     try {
       const matcher = toRouteMatcher(pathTemplate);
 
-      if (matcher.pathname === CATCH_ALL_PATHNAME) continue;
+      if (isCatchAll(matcher)) continue;
 
       if (PATTERN_SYNTAX.test(pathTemplate)) {
         patterns.push(matcher);
