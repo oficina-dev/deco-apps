@@ -159,6 +159,20 @@ export interface Props {
    */
   simulationBehavior?: SimulationBehavior;
 }
+/**
+ * The page the fetch will actually ask for. Shared with `cacheKey`: the URL is
+ * 1-based (and configurable through `pageOffset`) while the API is 0-based, so a
+ * key that took the raw `?page` would hand page 0 the entry of page 1 whenever
+ * the two happen to normalise onto the same number.
+ */
+const pageOf = (props: Props, url: URL) => {
+  const offset = props.pageOffset ?? 1;
+  const fromUrl = url.searchParams.get("page");
+
+  return props.page ??
+    Math.min(fromUrl ? Number(fromUrl) - offset : 0, VTEX_MAX_PAGES - offset);
+};
+
 const searchArgsOf = (props: Props, url: URL, ctx: AppContext) => {
   const hideUnavailableItems = props.hideUnavailableItems ??
     ctx.advancedConfigs?.hideUnavailableItems;
@@ -168,14 +182,7 @@ const searchArgsOf = (props: Props, url: URL, ctx: AppContext) => {
   const countFromSearchParams = url.searchParams.get("PS");
   const count = Number(countFromSearchParams ?? props.count ?? 12);
   const query = props.query ?? url.searchParams.get("q") ?? "";
-  const currentPageoffset = props.pageOffset ?? 1;
-  const page = props.page ??
-    Math.min(
-      url.searchParams.get("page")
-        ? Number(url.searchParams.get("page")) - currentPageoffset
-        : 0,
-      VTEX_MAX_PAGES - currentPageoffset,
-    );
+  const page = pageOf(props, url);
   const sort = (url.searchParams.get("sort")) ??
     LEGACY_TO_IS[url.searchParams.get("O") ?? ""] ??
     props.sort ??
@@ -463,7 +470,7 @@ export const cacheKey = (props: Props, req: Request, ctx: AppContext) => {
   const params = new URLSearchParams([
     ["query", props.query ?? ""],
     ["count", (props.count || url.searchParams.get("count") || 12).toString()],
-    ["page", (props.page ?? url.searchParams.get("page") ?? 1).toString()],
+    ["page", pageOf(props, url).toString()],
     ["sort", props.sort ?? url.searchParams.get("sort") ?? ""],
     ["fuzzy", props.fuzzy ?? url.searchParams.get("fuzzy") ?? ""],
     [
@@ -508,26 +515,13 @@ export const cacheKey = (props: Props, req: Request, ctx: AppContext) => {
   });
   params.sort();
 
-  // The block above re-appends params that were already computed from props a
-  // few lines up, so `?page=1` in the URL yields `page=1&page=1` while its
-  // absence yields `page=1` — two keys for one state, and a measured 1907ms miss
-  // where there should be a 12ms hit. Dropping exact duplicate (key,value) pairs
-  // is neutral by construction: a repeated identical pair carries no state that
-  // the first one does not. Anything that genuinely repeats with *different*
-  // values — filter.colors=azul&filter.colors=verde — survives untouched, which
-  // is why this is a dedup and not a `set`.
-  const deduped = new URLSearchParams();
-  let previous: string | null = null;
-  for (const [key, value] of params) {
-    const pair = `${key}=${value}`;
-    if (pair === previous) {
-      continue;
-    }
-    previous = pair;
-    deduped.append(key, value);
-  }
+  // Props echoed above repeat through the URL — `?page=1` yields `page=1&page=1`
+  // where its absence yields `page=1` — which is two keys for one state. Only
+  // identical adjacent pairs collapse, so a genuine repeat with different values
+  // (filter.colors=azul&filter.colors=verde) survives: a dedup, not a `set`.
+  const pairs = params.toString().split("&");
+  url.search = pairs.filter((pair, i) => pair !== pairs[i - 1]).join("&");
 
-  url.search = deduped.toString();
   return url.href;
 };
 export default loader;

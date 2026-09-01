@@ -361,24 +361,17 @@ export const cacheKey = (
   // Loader-over-loader and /live/invoke are exactly the calls this cache is worth
   // the most to — the PDP backfill pays three of them — so the blanket
   // `ctx.isInvoke` veto only survives where the URL still decides the search.
-  // `ctx.isInvoke` cannot tell an internal invoke from a public POST /live/invoke,
-  // so this stays limited to facets lists, whose props are a closed set.
   if (ctx.isInvoke && !keyedEntirelyByProps) {
     return null;
   }
 
-  // A facets list carries a free-text `query` of its own, and under invoke the
-  // whitelist above never sees it — `keyParams` is empty by design — so an
-  // arbitrary term would mint its own entry. Measured: `ctx.isInvoke` is true
-  // only for loader-over-loader, not for a top-level POST /live/invoke, so this
-  // guards callers inside the app rather than the public endpoint. Inert today
-  // (the PDP backfill sends no query) and cheap to keep: the moment some nested
-  // caller does pass one, the cache stops growing one entry per phrase.
+  // A facets list carries a free-text `query` of its own, and the whitelist above
+  // never sees it — `keyParams` is empty by design. Ungated on purpose: a
+  // top-level POST /live/invoke arrives with `ctx.isInvoke` false, so gating this
+  // on it would leave the public endpoint minting an entry, and an IS search, per
+  // arbitrary phrase.
   const propsQuery = isFacetsList(props) ? props.query : undefined;
-  if (
-    ctx.isInvoke && propsQuery &&
-    !cachedSearchTerms.includes(propsQuery.toLowerCase())
-  ) {
+  if (propsQuery && !cachedSearchTerms.includes(propsQuery.toLowerCase())) {
     return null;
   }
 

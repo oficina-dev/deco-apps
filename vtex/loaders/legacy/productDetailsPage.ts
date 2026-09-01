@@ -155,8 +155,10 @@ export const cacheKey = (props: Props, req: Request, ctx: AppContext) => {
       String(props.advancedConfigs?.preferDescription ?? false),
     ],
     [
+      // Stringified, not joined: `["a,b"]` and `["a","b"]` join to the same
+      // string and this list decides which attributes the payload carries.
       "originalAttrs",
-      (props.advancedConfigs?.includeOriginalAttributes ?? []).join(","),
+      JSON.stringify(props.advancedConfigs?.includeOriginalAttributes ?? []),
     ],
   ]);
 
