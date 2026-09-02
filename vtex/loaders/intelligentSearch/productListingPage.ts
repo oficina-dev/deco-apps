@@ -83,10 +83,17 @@ export const mapLabelledFuzzyToFuzzy = (
       return;
   }
 };
+/**
+ * URL params that still say something the props block above did not already say.
+ *
+ * `page` is deliberately absent: `pageOf` already resolved it into the key, and
+ * echoing the raw value on top splits one page in two — the storefront renders
+ * page 1 with no `?page` while its own client-side pagination asks for the same
+ * page as `?page=1`.
+ */
 const ALLOWED_PARAMS = new Set([
   "ps",
   "sort",
-  "page",
   "o",
   "q",
   "fuzzy",
