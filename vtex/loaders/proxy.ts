@@ -65,6 +65,7 @@ const buildProxyRoutes = (
     generateDecoSiteMap,
     excludePathsFromDecoSiteMap,
     excludeSiteMapEntry,
+    removeEntriesWithoutPage,
     includeScriptsToHead,
     includeScriptsToBody,
   }: {
@@ -76,6 +77,7 @@ const buildProxyRoutes = (
     generateDecoSiteMap?: boolean;
     excludePathsFromDecoSiteMap: string[];
     excludeSiteMapEntry?: string[];
+    removeEntriesWithoutPage?: boolean;
     includeScriptsToHead?: {
       includes?: Script[];
     };
@@ -162,6 +164,7 @@ const buildProxyRoutes = (
           value: {
             include,
             excludeSiteMapEntry,
+            removeEntriesWithoutPage,
             __resolveType: "vtex/handlers/sitemap.ts",
           },
         },
@@ -170,6 +173,7 @@ const buildProxyRoutes = (
         pathTemplate: "/sitemap/*",
         handler: {
           value: {
+            removeEntriesWithoutPage,
             __resolveType: "vtex/handlers/sitemap.ts",
           },
         },
@@ -212,6 +216,11 @@ export interface Props {
    */
   excludeSiteMapEntry?: string[];
   /**
+   * @title Remove URLs without a page
+   * @description Drops any &lt;url&gt; whose path no route answers, and logs it.
+   */
+  removeEntriesWithoutPage?: boolean;
+  /**
    * @title Scripts to include on Html head
    */
   includeScriptsToHead?: {
@@ -238,6 +247,7 @@ function loader(
     generateDecoSiteMap = true,
     excludePathsFromDecoSiteMap = [],
     excludeSiteMapEntry = [],
+    removeEntriesWithoutPage,
     includeScriptsToHead = { includes: [] },
     includeScriptsToBody = { includes: [] },
   }: Props,
@@ -248,6 +258,7 @@ function loader(
     generateDecoSiteMap,
     excludePathsFromDecoSiteMap,
     excludeSiteMapEntry,
+    removeEntriesWithoutPage,
     includeSiteMap,
     includeSiteMapWithHandler,
     includePathToDecoSitemap,
