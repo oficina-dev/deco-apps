@@ -32,9 +32,16 @@
     "@std/cli": "jsr:@std/cli@^1.0.3",
     "@zaubrik/djwt": "jsr:@zaubrik/djwt@^3.0.2",
     "fast-json-patch": "npm:fast-json-patch@^3.1.1",
+    "@deco/deno-ast-wasm": "jsr:@deco/deno-ast-wasm@0.5.5",
     "simple-git": "npm:simple-git@^3.25.0",
     "https://esm.sh/*preact-render-to-string@6.3.1": "npm:preact-render-to-string@6.4.2",
-    "@deco/deco": "jsr:@deco/deco@^1.181.0"
+    "@deco/deco": "https://cdn.jsdelivr.net/gh/oficina-dev/deco-runtime@b085f92007a9f03d93e894bdc3e961aa95b95dcd/mod.ts",
+    "@deco/deco/web": "https://cdn.jsdelivr.net/gh/oficina-dev/deco-runtime@b085f92007a9f03d93e894bdc3e961aa95b95dcd/mod.web.ts",
+    "@deco/deco/blocks": "https://cdn.jsdelivr.net/gh/oficina-dev/deco-runtime@b085f92007a9f03d93e894bdc3e961aa95b95dcd/blocks/mod.ts",
+    "@deco/deco/hooks": "https://cdn.jsdelivr.net/gh/oficina-dev/deco-runtime@b085f92007a9f03d93e894bdc3e961aa95b95dcd/hooks/mod.ts",
+    "@deco/deco/o11y": "https://cdn.jsdelivr.net/gh/oficina-dev/deco-runtime@b085f92007a9f03d93e894bdc3e961aa95b95dcd/observability/mod.ts",
+    "@deco/deco/utils": "https://cdn.jsdelivr.net/gh/oficina-dev/deco-runtime@b085f92007a9f03d93e894bdc3e961aa95b95dcd/utils/mod.ts",
+    "@deco/deco/scripts/bundle": "jsr:@deco/deco@^1.181.0/scripts/bundle"
   },
   "lock": false,
   "tasks": {

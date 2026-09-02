@@ -2662,6 +2662,7 @@
       "jsr:@cliffy/prompt@^1.0.0-rc.5",
       "jsr:@core/asyncutil@^1.0.2",
       "jsr:@deco/deco@^1.181.0",
+      "jsr:@deco/deno-ast-wasm@0.5.5",
       "jsr:@deco/durable@~0.5.3",
       "jsr:@deco/warp@0.3.6",
       "jsr:@hono/hono@^4.5.4",
