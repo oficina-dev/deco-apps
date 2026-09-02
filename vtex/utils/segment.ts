@@ -88,6 +88,39 @@ export const setOrderFormIdInBag = (
 ) => ctx?.bag?.set(ORDER_FORM_ID, orderFormId);
 
 /**
+ * btoa only accepts latin1 and THROWS on anything above it. The segment reaches
+ * it from an attacker-controlled cookie: a `\uXXXX` escape in the cookie's JSON
+ * survives atob + JSON.parse as a real code point above 0xFF and reaches btoa
+ * from there. (The `?sc=` query param is fenced off at the source instead — see
+ * buildSegmentFromRequest — because it also feeds the VTEXSC cookie.)
+ *
+ * That matters because `serialize` runs in the app middleware, on every request,
+ * and `getSegmentCacheKeyWithoutUTM` runs inside `cacheKey`, which the runtime
+ * calls outside its try — so a throw in either is a 500.
+ *
+ * Escaping back to ASCII keeps btoa in range without touching the value: the
+ * round-trip through atob + JSON.parse yields the exact same string.
+ */
+const toBase64 = (value: unknown) =>
+  btoa(
+    JSON.stringify(value).replace(
+      /[\u0080-\uffff]/g,
+      (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
+    ),
+  );
+
+/**
+ * The URL the cache key is built from.
+ *
+ * `pageHref` is a prop, so it arrives from a public POST /live/invoke like any
+ * other, and `cacheKey` runs outside the runtime's try — a malformed value in
+ * `new URL` is a 500 the caller hands itself. An unparseable one falls back to
+ * the request, which is what the loader did before the prop existed.
+ */
+export const keyUrlOf = (pageHref: string | undefined, req: Request) =>
+  new URL(pageHref && URL.canParse(pageHref) ? pageHref : req.url);
+
+/**
  * Creates a stable cache key from segment that only includes business-critical fields.
  * Excludes marketing/tracking parameters (UTM, UTMI) to prevent cache fragmentation.
  *
@@ -101,21 +134,43 @@ export const getSegmentCacheKeyWithoutUTM = (ctx: AppContext): string => {
   }
 
   // Only include fields that affect pricing, inventory, or content
+  //
+  // `channel` is deliberately absent. This storefront serves the website on
+  // trade policy 1 and the mobile app on policy 5, and the two mirror each
+  // other, so keying by the channel split one entry in two for byte-identical
+  // payloads — and the app reaches these loaders over /live/invoke carrying its
+  // own vtex_segment, so every shared path paid the fetch twice.
   const cacheRelevantSegment = {
     campaigns: segment.campaigns, // VTEX campaigns (can affect pricing)
-    channel: segment.channel, // Sales channel (affects inventory/pricing)
     priceTables: segment.priceTables, // Price tables (affects pricing)
     regionId: segment.regionId, // Region (can affect pricing/inventory)
     currencyCode: segment.currencyCode, // Currency
     cultureInfo: segment.cultureInfo, // Locale/language
     countryCode: segment.countryCode, // Country
-    channelPrivacy: segment.channelPrivacy, // Privacy settings
+    // Privacy settings. The default arrives spelled out — VTEX mints
+    // `"public"` while DEFAULT_SEGMENT omits the field — so only `"private"`
+    // earns an entry of its own.
+    channelPrivacy: segment.channelPrivacy === "public"
+      ? undefined
+      : segment.channelPrivacy,
     // EXCLUDED: utm_campaign, utm_source, utm_medium (marketing only)
     // EXCLUDED: utmi_campaign, utmi_page, utmi_part (VTEX tracking only)
   };
 
-  // Stable serialization for consistent cache keys
-  return btoa(JSON.stringify(cacheRelevantSegment));
+  // Absent, null and "" are one state, so they have to serialize as one.
+  // DEFAULT_SEGMENT carries no campaigns, priceTables, regionId or
+  // channelPrivacy, so the anonymous bag omits them entirely, while a shopper
+  // carrying a VTEX-minted vtex_segment sends them as null — same truth, two
+  // keys. The mobile app always carries that cookie, so every entry it shares
+  // with the anonymous SSR of the website depended on it. Same predicate the
+  // storefront applies on its own half of the key.
+  return toBase64(
+    Object.fromEntries(
+      Object.entries(cacheRelevantSegment).filter(([, value]) =>
+        Boolean(value)
+      ),
+    ),
+  );
 };
 /**
  * Stable serialization.
@@ -160,7 +215,7 @@ const serialize = ({
     cultureInfo,
     channelPrivacy,
   };
-  return btoa(JSON.stringify(seg));
+  return toBase64(seg);
 };
 
 const parse = (cookie: string) => {
@@ -190,8 +245,12 @@ export const buildSegmentFromRequest = (req: Request): Partial<Segment> => {
     }
   }
 
+  // A sales channel is a VTEX integer id. Take it only in that shape: the raw
+  // query value ends up in the VTEXSC cookie below, and setCookie rejects
+  // anything outside US-ASCII by throwing — in the app middleware, which runs on
+  // every request, so `?sc=<emoji>` on any URL would 500 the whole page.
   const sc = url.searchParams.get("sc");
-  if (sc) {
+  if (sc && /^\d+$/.test(sc)) {
     partialSegment.channel = sc;
   }
 

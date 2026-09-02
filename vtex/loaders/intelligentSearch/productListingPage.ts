@@ -17,6 +17,7 @@ import {
 import {
   getSegmentCacheKeyWithoutUTM,
   getSegmentFromBag,
+  keyUrlOf,
   withSegmentCookie,
 } from "../../utils/segment.ts";
 import { pageTypesFromUrl } from "../../utils/intelligentSearch.ts";
@@ -159,6 +160,20 @@ export interface Props {
    */
   simulationBehavior?: SimulationBehavior;
 }
+/**
+ * The page the fetch will actually ask for. Shared with `cacheKey`: the URL is
+ * 1-based (and configurable through `pageOffset`) while the API is 0-based, so a
+ * key that took the raw `?page` would hand page 0 the entry of page 1 whenever
+ * the two happen to normalise onto the same number.
+ */
+const pageOf = (props: Props, url: URL) => {
+  const offset = props.pageOffset ?? 1;
+  const fromUrl = url.searchParams.get("page");
+
+  return props.page ??
+    Math.min(fromUrl ? Number(fromUrl) - offset : 0, VTEX_MAX_PAGES - offset);
+};
+
 const searchArgsOf = (props: Props, url: URL, ctx: AppContext) => {
   const hideUnavailableItems = props.hideUnavailableItems ??
     ctx.advancedConfigs?.hideUnavailableItems;
@@ -168,14 +183,7 @@ const searchArgsOf = (props: Props, url: URL, ctx: AppContext) => {
   const countFromSearchParams = url.searchParams.get("PS");
   const count = Number(countFromSearchParams ?? props.count ?? 12);
   const query = props.query ?? url.searchParams.get("q") ?? "";
-  const currentPageoffset = props.pageOffset ?? 1;
-  const page = props.page ??
-    Math.min(
-      url.searchParams.get("page")
-        ? Number(url.searchParams.get("page")) - currentPageoffset
-        : 0,
-      VTEX_MAX_PAGES - currentPageoffset,
-    );
+  const page = pageOf(props, url);
   const sort = (url.searchParams.get("sort")) ??
     LEGACY_TO_IS[url.searchParams.get("O") ?? ""] ??
     props.sort ??
@@ -278,7 +286,9 @@ const loader = async (
 ): Promise<ProductListingPage | null> => {
   const { vcsDeprecated } = ctx;
   const { url: baseUrl } = req;
-  const url = new URL(props.pageHref || baseUrl);
+  const url = new URL(
+    props.pageHref && URL.canParse(props.pageHref) ? props.pageHref : baseUrl,
+  );
   const segment = getSegmentFromBag(ctx);
   const currentPageoffset = props.pageOffset ?? 1;
   const { selectedFacets: baseSelectedFacets, page, ...args } = searchArgsOf(
@@ -439,7 +449,7 @@ const loader = async (
 };
 export const cache = "stale-while-revalidate";
 export const cacheKey = (props: Props, req: Request, ctx: AppContext) => {
-  const url = new URL(props.pageHref || req.url);
+  const url = keyUrlOf(props.pageHref, req);
   const searchTerm = url.searchParams.get("q");
   const cachedSearchTerms = ctx.cachedSearchTerms ?? [];
   if (searchTerm && !cachedSearchTerms.includes(searchTerm.toLowerCase())) {
@@ -463,7 +473,7 @@ export const cacheKey = (props: Props, req: Request, ctx: AppContext) => {
   const params = new URLSearchParams([
     ["query", props.query ?? ""],
     ["count", (props.count || url.searchParams.get("count") || 12).toString()],
-    ["page", (props.page ?? url.searchParams.get("page") ?? 1).toString()],
+    ["page", pageOf(props, url).toString()],
     ["sort", props.sort ?? url.searchParams.get("sort") ?? ""],
     ["fuzzy", props.fuzzy ?? url.searchParams.get("fuzzy") ?? ""],
     [
@@ -486,15 +496,39 @@ export const cacheKey = (props: Props, req: Request, ctx: AppContext) => {
       url.searchParams.get("simulationBehavior") || props.simulationBehavior ||
       "default",
     ],
+    // Both change the payload — priceFacets adds the price facets (see the
+    // fselected branch), similars attaches isSimilarTo to every product — and
+    // neither is reachable from the URL. Since the loader cache is now keyed by
+    // the module, two callers of this same loader are separated by nothing but
+    // this key, so every prop that changes the result has to be in it.
+    ["priceFacets", (props.priceFacets ?? false).toString()],
+    ["similars", (props.similars ?? false).toString()],
+    // Renames the last pageType from the product's collection, so it changes the
+    // breadcrumb this payload carries. One PLP block in this storefront turns it
+    // on and the others leave it off.
+    ["useCollectionName", (props.useCollectionName ?? false).toString()],
   ]);
   url.searchParams.forEach((value, key) => {
     if (!ALLOWED_PARAMS.has(key.toLowerCase()) && !isFilterParam(key)) {
       return;
     }
+    // Case is preserved on purpose, even though the test above is
+    // case-insensitive. The loader reads `PS` and `O` uppercase and `q`
+    // lowercase, all case-sensitive, and none of the three is echoed by the
+    // props block above — so folding `?PS=24` onto `?ps=24` would hand one page
+    // size the other's entry. `?PAGE=1` keeping its own entry is a wasted hit;
+    // folding these would be wrong data.
     params.append(key, value);
   });
   params.sort();
-  url.search = params.toString();
+
+  // Props echoed above repeat through the URL — `?page=1` yields `page=1&page=1`
+  // where its absence yields `page=1` — which is two keys for one state. Only
+  // identical adjacent pairs collapse, so a genuine repeat with different values
+  // (filter.colors=azul&filter.colors=verde) survives: a dedup, not a `set`.
+  const pairs = params.toString().split("&");
+  url.search = pairs.filter((pair, i) => pair !== pairs[i - 1]).join("&");
+
   return url.href;
 };
 export default loader;
