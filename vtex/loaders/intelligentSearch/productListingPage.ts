@@ -503,6 +503,10 @@ export const cacheKey = (props: Props, req: Request, ctx: AppContext) => {
     // this key, so every prop that changes the result has to be in it.
     ["priceFacets", (props.priceFacets ?? false).toString()],
     ["similars", (props.similars ?? false).toString()],
+    // Renames the last pageType from the product's collection, so it changes the
+    // breadcrumb this payload carries. One PLP block in this storefront turns it
+    // on and the others leave it off.
+    ["useCollectionName", (props.useCollectionName ?? false).toString()],
   ]);
   url.searchParams.forEach((value, key) => {
     if (!ALLOWED_PARAMS.has(key.toLowerCase()) && !isFilterParam(key)) {
