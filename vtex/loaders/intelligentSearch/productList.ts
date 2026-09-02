@@ -10,6 +10,7 @@ import {
 import {
   getSegmentCacheKeyWithoutUTM,
   getSegmentFromBag,
+  keyUrlOf,
   withSegmentCookie,
 } from "../../utils/segment.ts";
 import { withIsSimilarTo } from "../../utils/similars.ts";
@@ -229,7 +230,7 @@ const loader = async (
   // /live/invoke from the mobile app — land on the entry the storefront's own
   // render produced. It also decides the base of every product URL in the
   // payload below, so a shared entry must not be written with the caller's URL.
-  const url = props.pageHref || req.url;
+  const url = keyUrlOf(props.pageHref, req).href;
   const segment = getSegmentFromBag(ctx);
   const locale = segment?.payload?.cultureInfo ??
     ctx.defaultSegment?.cultureInfo ?? "pt-BR";
@@ -335,7 +336,7 @@ export const cacheKey = (
   const props = expandedProps.props ??
     (expandedProps as unknown as Props["props"]);
 
-  const url = new URL(props.pageHref || req.url);
+  const url = keyUrlOf(props.pageHref, req);
 
   // A facets list is decided entirely by its props — fromProps reads nothing
   // from the URL for it — so its key must not read the URL either. When the two

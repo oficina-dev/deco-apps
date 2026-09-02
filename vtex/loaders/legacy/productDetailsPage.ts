@@ -6,6 +6,7 @@ import { toSegmentParams } from "../../utils/legacy.ts";
 import {
   getSegmentCacheKeyWithoutUTM,
   getSegmentFromBag,
+  keyUrlOf,
   withSegmentCookie,
 } from "../../utils/segment.ts";
 import { withIsSimilarTo } from "../../utils/similars.ts";
@@ -27,11 +28,11 @@ export interface Props {
    */
   indexingSkus?: boolean;
   /**
-   * @title Page href
-   * @description Canonical page URL to key the cache by. Same contract as
-   * intelligentSearch/productListingPage: without it a call through
-   * /live/invoke keys by its own URL and can never share the entry the page
-   * render produced.
+   * @hide true
+   * @description Canonical page URL to key the cache by. Same contract, and the
+   * same `@hide`, as intelligentSearch/productListingPage: without it a call
+   * through /live/invoke keys by its own URL and can never share the entry the
+   * page render produced.
    */
   pageHref?: string;
   /**
@@ -134,7 +135,7 @@ export const cacheKey = (props: Props, req: Request, ctx: AppContext) => {
   // props.pageHref first, like productListingPage does: the page render and a
   // /live/invoke call for the same product have different request URLs, so
   // keying by req.url alone gives each caller its own entry for identical data.
-  const url = new URL(props.pageHref || req.url);
+  const url = keyUrlOf(props.pageHref, req);
 
   const segment = ctx.advancedConfigs?.removeUTMFromCacheKey
     ? getSegmentCacheKeyWithoutUTM(ctx)

@@ -99,9 +99,7 @@ export const setOrderFormIdInBag = (
  * calls outside its try — so a throw in either is a 500.
  *
  * Escaping back to ASCII keeps btoa in range without touching the value: the
- * round-trip through atob + JSON.parse yields the exact same string, and a
- * segment that was already ASCII serializes byte-for-byte as before, so no cache
- * entry is invalidated by this change.
+ * round-trip through atob + JSON.parse yields the exact same string.
  */
 const toBase64 = (value: unknown) =>
   btoa(
@@ -110,6 +108,17 @@ const toBase64 = (value: unknown) =>
       (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
     ),
   );
+
+/**
+ * The URL the cache key is built from.
+ *
+ * `pageHref` is a prop, so it arrives from a public POST /live/invoke like any
+ * other, and `cacheKey` runs outside the runtime's try — a malformed value in
+ * `new URL` is a 500 the caller hands itself. An unparseable one falls back to
+ * the request, which is what the loader did before the prop existed.
+ */
+export const keyUrlOf = (pageHref: string | undefined, req: Request) =>
+  new URL(pageHref && URL.canParse(pageHref) ? pageHref : req.url);
 
 /**
  * Creates a stable cache key from segment that only includes business-critical fields.

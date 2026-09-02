@@ -17,6 +17,7 @@ import {
 import {
   getSegmentCacheKeyWithoutUTM,
   getSegmentFromBag,
+  keyUrlOf,
   withSegmentCookie,
 } from "../../utils/segment.ts";
 import { pageTypesFromUrl } from "../../utils/intelligentSearch.ts";
@@ -285,7 +286,9 @@ const loader = async (
 ): Promise<ProductListingPage | null> => {
   const { vcsDeprecated } = ctx;
   const { url: baseUrl } = req;
-  const url = new URL(props.pageHref || baseUrl);
+  const url = new URL(
+    props.pageHref && URL.canParse(props.pageHref) ? props.pageHref : baseUrl,
+  );
   const segment = getSegmentFromBag(ctx);
   const currentPageoffset = props.pageOffset ?? 1;
   const { selectedFacets: baseSelectedFacets, page, ...args } = searchArgsOf(
@@ -446,7 +449,7 @@ const loader = async (
 };
 export const cache = "stale-while-revalidate";
 export const cacheKey = (props: Props, req: Request, ctx: AppContext) => {
-  const url = new URL(props.pageHref || req.url);
+  const url = keyUrlOf(props.pageHref, req);
   const searchTerm = url.searchParams.get("q");
   const cachedSearchTerms = ctx.cachedSearchTerms ?? [];
   if (searchTerm && !cachedSearchTerms.includes(searchTerm.toLowerCase())) {
