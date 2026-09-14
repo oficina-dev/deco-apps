@@ -58,6 +58,24 @@ export interface Props {
   jsonLDs?: unknown[];
 }
 
+// schema.org assigns no meaning to a null-valued property, and a null node
+// crashes some consumers: iOS Safari's Apple Wallet schema scanner walks the
+// JSON-LD calling hasOwnProperty.call(node, "telephone") on every node and
+// throws on null. A null `seo.description` on PDPs was a chronic client error
+// (104 a week). JSON.stringify keeps nulls and only drops undefined, so strip
+// them deeply — from object properties and array elements alike — before
+// serialising. Better schema for Google as a side effect.
+const stripNulls = (value: unknown): unknown =>
+  Array.isArray(value)
+    ? value.filter((item) => item !== null).map(stripNulls)
+    : value && typeof value === "object"
+    ? Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, item]) => item !== null)
+        .map(([key, item]) => [key, stripNulls(item)]),
+    )
+    : value;
+
 function Component({
   title: t = "",
   titleTemplate = "%s",
@@ -136,11 +154,11 @@ function Component({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify({
+            __html: JSON.stringify(stripNulls({
               "@context": "https://schema.org",
               // @ts-expect-error Trust me, I'm an engineer
               ...json,
-            })
+            }))
               // "<" would allow a "</script>" in the data to break out of the
               // tag; the unicode escapes stay equivalent when parsed as JSON
               .replace(/</g, "\\u003c")
