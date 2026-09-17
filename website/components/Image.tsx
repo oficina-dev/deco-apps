@@ -8,7 +8,7 @@ const DEFAULT_CDN_HOST = "https://decoims.com";
 
 // CDN host can be overridden via DECO_CDN_HOST env var (server) or
 // window.DECO.featureFlags.cdnHost (browser, injected by Events.tsx).
-const getCdnHost = (): string => {
+export const getCdnHost = (): string => {
   if (IS_BROWSER) {
     // deno-lint-ignore no-explicit-any
     return (globalThis as any).DECO?.featureFlags?.cdnHost ?? DEFAULT_CDN_HOST;
@@ -21,7 +21,7 @@ const getCdnHost = (): string => {
 // configured CDN host is included so a non-default DECO_CDN_HOST still
 // strips correctly; the GCS deco-assets bucket is kept unconditionally as a
 // well-known origin.
-const getAssetUrlPrefixesToStrip = (): readonly string[] => [
+export const getAssetUrlPrefixesToStrip = (): readonly string[] => [
   `${getCdnHost()}/`,
   "https://storage.googleapis.com/deco-assets/",
   "https://assets.decocache.com/",
@@ -111,7 +111,7 @@ const optmizeShopify = (opts: OptimizationOptions) => {
   return url.href;
 };
 
-const optimizeVTEX = (opts: OptimizationOptions) => {
+export const optimizeVTEX = (opts: OptimizationOptions) => {
   const { originalSrc, width, height } = opts;
 
   const src = new URL(originalSrc);

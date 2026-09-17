@@ -10,6 +10,7 @@ import {
 import {
   getSegmentCacheKeyWithoutUTM,
   getSegmentFromBag,
+  keyUrlOf,
   withSegmentCookie,
 } from "../../utils/segment.ts";
 import { withIsSimilarTo } from "../../utils/similars.ts";
@@ -122,6 +123,11 @@ export interface CommonProps {
    * @description Defines the simulation behavior.
    */
   simulationBehavior?: SimulationBehavior;
+  /**
+   * @hide true
+   * @description The URL of the page, used to override URL from request
+   */
+  pageHref?: string;
 }
 
 /**
@@ -219,7 +225,12 @@ const loader = async (
   const props = expandedProps.props ??
     (expandedProps as unknown as Props["props"]);
   const { vcsDeprecated } = ctx;
-  const { url } = req;
+  // `pageHref` over `req.url`, same as the sibling productListingPage loader: it
+  // is what lets a caller that is not the page itself — a nested loader, a
+  // /live/invoke from the mobile app — land on the entry the storefront's own
+  // render produced. It also decides the base of every product URL in the
+  // payload below, so a shared entry must not be written with the caller's URL.
+  const url = keyUrlOf(props.pageHref, req).href;
   const segment = getSegmentFromBag(ctx);
   const locale = segment?.payload?.cultureInfo ??
     ctx.defaultSegment?.cultureInfo ?? "pt-BR";
@@ -325,15 +336,43 @@ export const cacheKey = (
   const props = expandedProps.props ??
     (expandedProps as unknown as Props["props"]);
 
-  const url = new URL(req.url);
+  const url = keyUrlOf(props.pageHref, req);
+
+  // A facets list is decided entirely by its props — fromProps reads nothing
+  // from the URL for it — so its key must not read the URL either. When the two
+  // disagree the key is finer than the fetch: the same payload gets one entry
+  // per `?q=`, and the caller's own path (a PDP, /deco/render, /live/invoke)
+  // splits it again. Narrow it here and the entry is shared by construction.
+  const keyedEntirelyByProps = isFacetsList(props);
+  const keyParams = keyedEntirelyByProps
+    ? new URLSearchParams()
+    : url.searchParams;
 
   const searchTerm = url.searchParams.get("q");
   const cachedSearchTerms = ctx.cachedSearchTerms ?? [];
   if (
-    // Avoid cache on loader call over call and on search pages
+    // Avoid cache on search pages whose term is not whitelisted. This stays in
+    // force for props-keyed lists too: an arbitrary term must never mint an entry.
     (!isQueryList(props) && searchTerm &&
-      !cachedSearchTerms.includes(searchTerm.toLowerCase())) || ctx.isInvoke
+      !cachedSearchTerms.includes(searchTerm.toLowerCase()))
   ) {
+    return null;
+  }
+
+  // Loader-over-loader and /live/invoke are exactly the calls this cache is worth
+  // the most to — the PDP backfill pays three of them — so the blanket
+  // `ctx.isInvoke` veto only survives where the URL still decides the search.
+  if (ctx.isInvoke && !keyedEntirelyByProps) {
+    return null;
+  }
+
+  // A facets list carries a free-text `query` of its own, and the whitelist above
+  // never sees it — `keyParams` is empty by design. Ungated on purpose: a
+  // top-level POST /live/invoke arrives with `ctx.isInvoke` false, so gating this
+  // on it would leave the public endpoint minting an entry, and an IS search, per
+  // arbitrary phrase.
+  const propsQuery = isFacetsList(props) ? props.query : undefined;
+  if (propsQuery && !cachedSearchTerms.includes(propsQuery.toLowerCase())) {
     return null;
   }
 
@@ -347,8 +386,12 @@ export const cacheKey = (
     ? getSegmentCacheKeyWithoutUTM(ctx)
     : getSegmentFromBag(ctx)?.token;
   const params = new URLSearchParams([
-    ...getSearchParams(props, url.searchParams, ctx),
+    ...getSearchParams(props, keyParams, ctx),
     ["segment", segmentCacheKey],
+    // Attaches isSimilarTo to every product and is not reachable from the URL.
+    // With the loader cache keyed by module, this key is the only thing keeping
+    // two callers of this loader apart.
+    ["similars", (props.similars ?? false).toString()],
   ]);
 
   if (
