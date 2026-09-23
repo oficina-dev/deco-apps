@@ -24,14 +24,12 @@ export default async function loader(
     const data = await client.fullReview(props);
     return data;
   } catch (error) {
-    // Deliberately not swallowed. This loader is stale-while-revalidate, so a
-    // handler that resolves is what gets written to the cache: returning an
-    // empty review on a failed call blanks the rating for the whole TTL and
-    // then serves that blank as stale. Throwing leaves the last good value in
-    // place, and callers that can render without a rating catch it themselves.
     const message = error instanceof Error ? error.message : String(error);
-    logger.warn(`Error getting full review - ${message}`);
-    throw error;
+    logger.error("Error getting full review", message);
+    return {
+      aggregateRating: undefined,
+      review: [],
+    };
   }
 }
 

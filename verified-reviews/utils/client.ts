@@ -1,4 +1,4 @@
-import { fetchAPI, fetchSafe } from "../../utils/fetch.ts";
+import { fetchAPI } from "../../utils/fetch.ts";
 import { Ratings, Reviews, VerifiedReviewsFullReview } from "./types.ts";
 import { Product } from "../../commerce/types.ts";
 import { ConfigVerifiedReviews } from "../mod.ts";
@@ -47,43 +47,6 @@ const MessageError = {
 const baseUrl = "https://awsapis3.netreviews.eu/product";
 // A string body defaults to text/plain, which the API answers with a 502.
 const jsonHeaders = { "content-type": "application/json" };
-
-/**
- * The ratings endpoint answers 200 with an empty body on a small share of the
- * calls made from our pods — around 30 per thousand product pages, flat across
- * the day, spread over every pod, and never reproducible from outside (800 ids,
- * concurrent pairs and idle connections all answer JSON). The sibling `reviews`
- * call, same host and same Promise.all, sees it about once a week.
- *
- * An empty body is not "this product has no reviews": an unknown id answers
- * `{}`. So retry once, and if it repeats say what the response actually carried
- * instead of handing the caller an undefined it cannot tell apart from silence.
- */
-const postRatings = async (payload: unknown): Promise<Ratings> => {
-  let detail = "";
-
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    const started = Date.now();
-    const response = await fetchSafe(baseUrl, {
-      method: "POST",
-      headers: { ...jsonHeaders, accept: "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const body = await response.text();
-
-    if (body) {
-      return JSON.parse(body) as Ratings;
-    }
-
-    detail = `attempt ${attempt}, status ${response.status}, ` +
-      `content-length ${response.headers.get("content-length")}, ` +
-      `content-type ${response.headers.get("content-type")}, ` +
-      `${Date.now() - started}ms`;
-  }
-
-  throw new Error(`empty body from the ratings endpoint (${detail})`);
-};
-
 export const createClient = (params: ConfigVerifiedReviews | undefined) => {
   if (!params) {
     return;
@@ -126,15 +89,20 @@ export const createClient = (params: ConfigVerifiedReviews | undefined) => {
       plateforme: "br",
     };
     try {
-      const data = await postRatings(payload);
+      const data = await fetchAPI<Ratings>(`${baseUrl}`, {
+        method: "POST",
+        headers: jsonHeaders,
+        body: JSON.stringify(payload),
+      });
       return Object.keys(data).length ? data : undefined;
     } catch (error) {
-      // Thrown on purpose. Returning undefined here reads as "no reviews", and
-      // the loader cache stores that as the answer for the whole TTL — the
-      // rating disappears from the page and from the JSON-LD long after the
-      // call that failed. Failing instead keeps the last good value in cache.
-      logger.warn(`${MessageError.ratings} - ${error}`);
-      throw error;
+      if (context.isDeploy) {
+        logger.error(`${MessageError.ratings} - ${error}`);
+      } else {
+        console.log(`${MessageError.ratings} - ${error}`);
+        return undefined;
+      }
+      return undefined;
     }
   };
   /** @description https://documenter.getpostman.com/view/2336519/SVzw6MK5#daf51360-c79e-451a-b627-33bdd0ef66b8 */
@@ -208,10 +176,15 @@ export const createClient = (params: ConfigVerifiedReviews | undefined) => {
         review: responseReview ? responseReview.reviews?.map(toReview) : [],
       };
     } catch (error) {
-      // Same reason as `ratings`: an empty review payload here would be cached
-      // as the product's answer. The caller decides what to render.
-      logger.warn(`${MessageError.fullReview} - ${error}`);
-      throw error;
+      if (context.isDeploy) {
+        logger.error(`${MessageError.fullReview} - ${error}`);
+      } else {
+        throw new Error(`${MessageError.fullReview} - ${error}`);
+      }
+      return {
+        aggregateRating: undefined,
+        review: [],
+      };
     }
   };
   const storeReview = async (): Promise<Reviews["reviews"] | null> => {

@@ -36,21 +36,12 @@ export default function productDetailsPage(
       ];
     }
 
-    // The invoke throws when the reviews API fails, and an extension that
-    // throws takes the product page down with it. A page without a rating is
-    // the degradation this component already renders — the button and the
-    // sheet hide themselves, and the JSON-LD drops the aggregateRating.
-    let fullReview;
-    try {
-      fullReview = await ctx.invoke["verified-reviews"].loaders.fullReview({
-        productId: productsToGetReviews,
-        count: config?.count,
-        offset: config?.offset,
-        order: config?.order,
-      });
-    } catch {
-      return productDetailsPage;
-    }
+    const fullReview = await ctx.invoke["verified-reviews"].loaders.fullReview({
+      productId: productsToGetReviews,
+      count: config?.count,
+      offset: config?.offset,
+      order: config?.order,
+    });
 
     return {
       ...productDetailsPage,
