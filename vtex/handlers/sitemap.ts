@@ -236,6 +236,19 @@ const dropEntriesWithoutPage = (
 };
 
 /**
+ * Drops <lastmod> from every <url>, leaving the <sitemap> blocks of an index
+ * alone. The platform stamps each entry with the day the file was generated,
+ * which says nothing about the page; crawlers that notice learn to ignore the
+ * field for the whole site, sitemaps with real dates included. An absent
+ * <lastmod> is neutral.
+ */
+const dropUrlLastmod = (xml: string) =>
+  xml.replace(
+    /<url>[\s\S]*?<\/url>/gi,
+    (block) => block.replace(/\s*<lastmod>[^<]*<\/lastmod>/gi, ""),
+  );
+
+/**
  * What is still true of a document this handler rewrote. Everything else the
  * upstream sent describes bytes that no longer exist — the length, the gzip
  * encoding already undone by reading the body, the validators naming the
@@ -256,12 +269,22 @@ export interface Props {
    * @description Drops any <url> whose path no route answers, and logs it.
    */
   removeEntriesWithoutPage?: boolean;
+  /**
+   * @title Remove lastmod from URLs
+   * @description Drops the &lt;lastmod&gt; of every &lt;url&gt;, for platforms that stamp them all with the generation date.
+   */
+  removeUrlLastmod?: boolean;
 }
 /**
  * @title Sitemap Proxy
  */
 export default function Sitemap(
-  { include, excludeSiteMapEntry, removeEntriesWithoutPage }: Props,
+  {
+    include,
+    excludeSiteMapEntry,
+    removeEntriesWithoutPage,
+    removeUrlLastmod,
+  }: Props,
   { publicUrl: url, usePortalSitemap, account }: AppContext,
 ) {
   return async (
@@ -327,6 +350,10 @@ export default function Sitemap(
         console.error(message, data);
         logger.error(message, { data });
       }
+    }
+
+    if (removeUrlLastmod) {
+      filtered = dropUrlLastmod(filtered);
     }
 
     const headers = new Headers();
