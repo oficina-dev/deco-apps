@@ -66,6 +66,7 @@ const buildProxyRoutes = (
     excludePathsFromDecoSiteMap,
     excludeSiteMapEntry,
     removeEntriesWithoutPage,
+    removeUrlLastmod,
     includeScriptsToHead,
     includeScriptsToBody,
   }: {
@@ -78,6 +79,7 @@ const buildProxyRoutes = (
     excludePathsFromDecoSiteMap: string[];
     excludeSiteMapEntry?: string[];
     removeEntriesWithoutPage?: boolean;
+    removeUrlLastmod?: boolean;
     includeScriptsToHead?: {
       includes?: Script[];
     };
@@ -165,6 +167,7 @@ const buildProxyRoutes = (
             include,
             excludeSiteMapEntry,
             removeEntriesWithoutPage,
+            removeUrlLastmod,
             __resolveType: "vtex/handlers/sitemap.ts",
           },
         },
@@ -174,6 +177,7 @@ const buildProxyRoutes = (
         handler: {
           value: {
             removeEntriesWithoutPage,
+            removeUrlLastmod,
             __resolveType: "vtex/handlers/sitemap.ts",
           },
         },
@@ -221,6 +225,11 @@ export interface Props {
    */
   removeEntriesWithoutPage?: boolean;
   /**
+   * @title Remove lastmod from URLs
+   * @description Drops the &lt;lastmod&gt; of every &lt;url&gt; in the proxied sitemaps, which VTEX stamps with the generation date.
+   */
+  removeUrlLastmod?: boolean;
+  /**
    * @title Scripts to include on Html head
    */
   includeScriptsToHead?: {
@@ -248,6 +257,7 @@ function loader(
     excludePathsFromDecoSiteMap = [],
     excludeSiteMapEntry = [],
     removeEntriesWithoutPage,
+    removeUrlLastmod,
     includeScriptsToHead = { includes: [] },
     includeScriptsToBody = { includes: [] },
   }: Props,
@@ -259,6 +269,7 @@ function loader(
     excludePathsFromDecoSiteMap,
     excludeSiteMapEntry,
     removeEntriesWithoutPage,
+    removeUrlLastmod,
     includeSiteMap,
     includeSiteMapWithHandler,
     includePathToDecoSitemap,
