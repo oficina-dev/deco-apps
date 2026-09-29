@@ -1,4 +1,4 @@
-import { fetchAPI } from "../../utils/fetch.ts";
+import { fetchAPI, fetchSafe } from "../../utils/fetch.ts";
 import { Ratings, Reviews, VerifiedReviewsFullReview } from "./types.ts";
 import { Product } from "../../commerce/types.ts";
 import { ConfigVerifiedReviews } from "../mod.ts";
@@ -47,6 +47,19 @@ const MessageError = {
 const baseUrl = "https://awsapis3.netreviews.eu/product";
 // A string body defaults to text/plain, which the API answers with a 502.
 const jsonHeaders = { "content-type": "application/json" };
+// The ratings query answers `{}` for a single unrated product but an empty 200
+// when none of several products has a rating (a product with its colors, all
+// new), so an empty body means "no ratings", not a failure.
+const postRatings = async (payload: unknown): Promise<Ratings> => {
+  const response = await fetchSafe(baseUrl, {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify(payload),
+  });
+  const body = await response.text();
+  return body ? JSON.parse(body) : {};
+};
+
 export const createClient = (params: ConfigVerifiedReviews | undefined) => {
   if (!params) {
     return;
@@ -63,11 +76,7 @@ export const createClient = (params: ConfigVerifiedReviews | undefined) => {
       plateforme: "br",
     };
     try {
-      const data = await fetchAPI<Ratings>(`${baseUrl}`, {
-        method: "POST",
-        headers: jsonHeaders,
-        body: JSON.stringify(payload),
-      });
+      const data = await postRatings(payload);
       return Object.keys(data).length ? data : undefined;
     } catch (error) {
       if (context.isDeploy) {
@@ -89,11 +98,7 @@ export const createClient = (params: ConfigVerifiedReviews | undefined) => {
       plateforme: "br",
     };
     try {
-      const data = await fetchAPI<Ratings>(`${baseUrl}`, {
-        method: "POST",
-        headers: jsonHeaders,
-        body: JSON.stringify(payload),
-      });
+      const data = await postRatings(payload);
       return Object.keys(data).length ? data : undefined;
     } catch (error) {
       if (context.isDeploy) {
