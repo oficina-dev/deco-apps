@@ -1,4 +1,4 @@
-import { fetchAPI } from "../../utils/fetch.ts";
+import { fetchAPI, fetchSafe } from "../../utils/fetch.ts";
 import { Ratings, Reviews, VerifiedReviewsFullReview } from "./types.ts";
 import { Product } from "../../commerce/types.ts";
 import { ConfigVerifiedReviews } from "../mod.ts";
@@ -8,6 +8,7 @@ import {
   toReview,
 } from "./transform.ts";
 import { context } from "@deco/deco";
+import { logger } from "@deco/deco/o11y";
 export type ClientVerifiedReviews = ReturnType<typeof createClient>;
 export interface PaginationOptions {
   count?: number;
@@ -44,6 +45,21 @@ const MessageError = {
     "🔴⭐ Error on call Full Review of Verified Review - probably unidentified product",
 };
 const baseUrl = "https://awsapis3.netreviews.eu/product";
+// A string body defaults to text/plain, which the API answers with a 502.
+const jsonHeaders = { "content-type": "application/json" };
+// The ratings query answers `{}` for a single unrated product but an empty 200
+// when none of several products has a rating (a product with its colors, all
+// new), so an empty body means "no ratings", not a failure.
+const postRatings = async (payload: unknown): Promise<Ratings> => {
+  const response = await fetchSafe(baseUrl, {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify(payload),
+  });
+  const body = await response.text();
+  return body ? JSON.parse(body) : {};
+};
+
 export const createClient = (params: ConfigVerifiedReviews | undefined) => {
   if (!params) {
     return;
@@ -60,14 +76,11 @@ export const createClient = (params: ConfigVerifiedReviews | undefined) => {
       plateforme: "br",
     };
     try {
-      const data = await fetchAPI<Ratings>(`${baseUrl}`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
+      const data = await postRatings(payload);
       return Object.keys(data).length ? data : undefined;
     } catch (error) {
       if (context.isDeploy) {
-        console.error(MessageError.rating, error);
+        logger.error(`${MessageError.rating} - ${error}`);
       } else {
         throw new Error(`${MessageError.rating} - ${error}`);
       }
@@ -85,14 +98,11 @@ export const createClient = (params: ConfigVerifiedReviews | undefined) => {
       plateforme: "br",
     };
     try {
-      const data = await fetchAPI<Ratings>(`${baseUrl}`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
+      const data = await postRatings(payload);
       return Object.keys(data).length ? data : undefined;
     } catch (error) {
       if (context.isDeploy) {
-        console.error(MessageError.ratings, error);
+        logger.error(`${MessageError.ratings} - ${error}`);
       } else {
         console.log(`${MessageError.ratings} - ${error}`);
         return undefined;
@@ -130,6 +140,7 @@ export const createClient = (params: ConfigVerifiedReviews | undefined) => {
 
     return fetchAPI<Reviews[]>(`${baseUrl}`, {
       method: "POST",
+      headers: jsonHeaders,
       body: JSON.stringify(payload),
     });
   };
@@ -171,7 +182,7 @@ export const createClient = (params: ConfigVerifiedReviews | undefined) => {
       };
     } catch (error) {
       if (context.isDeploy) {
-        console.error(MessageError.ratings, error);
+        logger.error(`${MessageError.fullReview} - ${error}`);
       } else {
         throw new Error(`${MessageError.fullReview} - ${error}`);
       }
@@ -192,7 +203,7 @@ export const createClient = (params: ConfigVerifiedReviews | undefined) => {
       return (response ? response : []);
     } catch (error) {
       if (context.isDeploy) {
-        console.error(MessageError.ratings, error);
+        logger.error(`${MessageError.ratings} - ${error}`);
       } else {
         throw new Error(`${MessageError.ratings} - ${error}`);
       }

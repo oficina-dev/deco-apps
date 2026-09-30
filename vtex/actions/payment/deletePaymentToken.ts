@@ -1,5 +1,5 @@
 import { AppContext } from "../../mod.ts";
-import { parseCookie } from "../../utils/vtexId.ts";
+import { forwardCookie, parseCookie } from "../../utils/vtexId.ts";
 
 export interface DeleteCard {
   deletePaymentToken: boolean;
@@ -17,13 +17,15 @@ interface Props {
  * @title Delete Payment Token
  * @description Delete a payment token
  */
-async function loader(
+async function action(
   { id }: Props,
   req: Request,
   ctx: AppContext,
 ): Promise<DeleteCard> {
   const { io } = ctx;
-  const { cookie, payload } = parseCookie(req.headers, ctx.account);
+  const { payload } = parseCookie(req.headers, ctx.account);
+
+  const cookie = forwardCookie(req.headers);
 
   if (!payload?.sub || !payload?.userId) {
     throw new Error("User cookie is invalid");
@@ -36,4 +38,4 @@ async function loader(
 }
 
 export const defaultVisibility = "private";
-export default loader;
+export default action;
