@@ -1,7 +1,8 @@
 import { postViews } from "../db/schema.ts";
 import { AppContext } from "../mod.ts";
-import { BlogPost, SortBy, ViewFromDatabase } from "../types.ts";
+import { BlogPost, isLivePost, SortBy, ViewFromDatabase } from "../types.ts";
 import { VALID_SORT_ORDERS } from "../utils/constants.ts";
+import { dateToTime } from "../utils/date.ts";
 
 /**
  * Returns an sorted BlogPost list
@@ -87,8 +88,7 @@ export const sortPosts = async (
       return -1; // If post b doesn't have sort method, put it after post a
     }
     const comparison = sortMethod === "date"
-      ? new Date(`${b.date}T00:00:00`).getTime() -
-        new Date(`${a.date}T00:00:00`).getTime()
+      ? dateToTime(b.date) - dateToTime(a.date)
       : a[sortMethod]?.toString().localeCompare(
         b[sortMethod]?.toString() ?? "",
       ) ?? 0;
@@ -100,12 +100,21 @@ export const sortPosts = async (
  * Returns an filtered BlogPost list
  *
  * @param posts Posts to be handled
- * @param slug Category Slug to be filter
+ * @param slug Category slug, or a list of slugs a post may belong to any of.
+ *   A list is how a parent category pulls in its descendants' posts.
  */
-export const filterPostsByCategory = (posts: BlogPost[], slug?: string) =>
-  slug
-    ? posts.filter(({ categories }) => categories?.find((c) => c.slug === slug))
-    : posts;
+export const filterPostsByCategory = (
+  posts: BlogPost[],
+  slug?: string | string[],
+) => {
+  if (!slug || (Array.isArray(slug) && slug.length === 0)) {
+    return posts;
+  }
+  const slugs = new Set(Array.isArray(slug) ? slug : [slug]);
+  return posts.filter(({ categories }) =>
+    categories?.some((c) => slugs.has(c?.slug))
+  );
+};
 
 /**
  * Returns an filtered BlogPost list by specific slugs
@@ -138,10 +147,7 @@ export const filterPostsByTerm = (posts: BlogPost[], term: string) =>
 export const filterRelatedPosts = (
   posts: BlogPost[],
   slug: string[],
-) =>
-  posts.filter(
-    ({ categories }) => categories?.find((c) => slug.includes(c.slug)),
-  );
+) => filterPostsByCategory(posts, slug);
 
 /**
  * Returns an filtered and sorted BlogPost list
@@ -160,27 +166,38 @@ export const slicePosts = (
   return posts.slice(startIndex, endIndex);
 };
 
+/**
+ * A record without a slug has no route, so it can never be rendered: listing it
+ * only produces cards linking to the listing itself. Posts that aren't live are
+ * unreachable for a different reason — either the CMS doesn't consider them
+ * ready, or they're scheduled for an instant that hasn't arrived yet — but the
+ * outcome is the same, so both are dropped here, before slicePosts, so `count`
+ * still yields `count` renderable posts.
+ *
+ * A scheduled post crossing its instant flips this filter on the next request
+ * that misses cache; nothing re-deploys and no record is rewritten.
+ */
+export const filterRoutablePosts = (posts: BlogPost[]) =>
+  // Records come straight from the CMS, so `slug` is only a string by
+  // convention: the typeof guard keeps a malformed one from throwing here and
+  // taking the whole listing down with it.
+  posts.filter((post) =>
+    typeof post.slug === "string" && post.slug.trim() && isLivePost(post)
+  );
+
 const filterPosts = (
-  posts: BlogPost[],
+  allPosts: BlogPost[],
   slug?: string | string[],
   postSlugs?: string[],
   term?: string,
 ): BlogPost[] => {
-  if (typeof slug === "string") {
-    const firstFilter = postSlugs && postSlugs.length > 0
-      ? filterPostsBySlugs(posts, postSlugs)
-      : filterPostsByCategory(posts, slug);
+  const posts = filterRoutablePosts(allPosts);
 
-    const filteredByTerm = term
-      ? filterPostsByTerm(firstFilter, term)
-      : firstFilter;
-    return filteredByTerm;
-  }
-  if (Array.isArray(slug)) {
-    return filterRelatedPosts(posts, slug);
-  }
+  const byCategory = postSlugs && postSlugs.length > 0
+    ? filterPostsBySlugs(posts, postSlugs)
+    : filterPostsByCategory(posts, slug);
 
-  return term ? filterPostsByTerm(posts, term) : posts;
+  return term ? filterPostsByTerm(byCategory, term) : byCategory;
 };
 
 /**
@@ -210,6 +227,7 @@ export default async function handlePosts(
   if (!filteredPosts || filteredPosts.length === 0) {
     return null;
   }
+  const sorted = await sortPosts(filteredPosts, sortBy, ctx);
 
-  return await sortPosts(filteredPosts, sortBy, ctx);
+  return sorted;
 }
