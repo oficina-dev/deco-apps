@@ -592,6 +592,8 @@ export interface ProductSearchResult {
   redirect: string;
   fuzzy: string;
   correction?: Correction;
+  /** Identifies this search to VTEX's analytics. One per query, filter set, sort and page. */
+  searchId?: string;
 }
 
 export interface Correction {

@@ -391,7 +391,7 @@ const loader = async (
       )
       .catch(console.error);
   }
-  const { products: vtexProducts, pagination, recordsFiltered } =
+  const { products: vtexProducts, pagination, recordsFiltered, searchId } =
     productsResult;
   const facets = selectPriceFacet(facetsResult.facets, selectedFacets);
   // Transform VTEX product format into schema.org's compatible format
@@ -445,6 +445,7 @@ const loader = async (
       records: recordsFiltered,
       recordPerPage: pagination.perPage,
       pageTypes: allPageTypes.map(parsePageType),
+      searchId: searchId || undefined,
     },
     sortOptions,
     seo: pageTypesToSeo(
