@@ -26,6 +26,13 @@ export const parseAuthCookie = (headers: Headers) => {
   return decoded?.[1] as CookiePayload | undefined ?? null;
 };
 
+/**
+ * Full request cookie (incl. vtex_session) so store-graphql's @withCurrentProfile resolves
+ * the session-scoped profile (e.g. telesales impersonation) — parseCookie forwards only the
+ * VtexId cookies and drops vtex_session. Matches the cart actions' cookie forwarding.
+ */
+export const forwardCookie = (headers: Headers) => headers.get("cookie") ?? "";
+
 export const parseCookie = (headers: Headers, account: string) => {
   const cookies = getCookies(headers);
   const cookie = cookies[VTEX_ID_CLIENT_COOKIE] ||

@@ -1,6 +1,6 @@
 import type { AppContext } from "../../mod.ts";
 import type { Profile } from "../../utils/types.ts";
-import { parseCookie } from "../../utils/vtexId.ts";
+import { forwardCookie, parseCookie } from "../../utils/vtexId.ts";
 
 const addressProperties = `
 addressType
@@ -69,7 +69,9 @@ async function loader(
   ctx: AppContext,
 ): Promise<Profile> {
   const { io } = ctx;
-  const { cookie, payload } = parseCookie(req.headers, ctx.account);
+  const { payload } = parseCookie(req.headers, ctx.account);
+
+  const cookie = forwardCookie(req.headers);
 
   if (!payload?.sub || !payload?.userId) {
     throw new Error("User cookie is invalid");

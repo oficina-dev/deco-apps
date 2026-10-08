@@ -12,6 +12,7 @@ import {
   LegacyFacets,
   LegacyProduct,
   LegacySort,
+  LogoutResponse,
   OrderForm,
   OrderFormOrder,
   PageType,
@@ -36,6 +37,10 @@ export interface VTEXCommerceStable {
     };
     response: StartAuthentication;
   };
+  "POST /api/vtexid/pub/authentication/startlogin": {
+    body: FormData;
+    response: unknown;
+  };
   "POST /api/vtexid/refreshtoken/webstore": {
     response: {
       status: string;
@@ -55,8 +60,8 @@ export interface VTEXCommerceStable {
     response: AuthResponse;
   };
   "POST /api/vtexid/pub/authentication/classic/setpassword": {
-    searchParams: { scope?: string; locale?: string };
-    body: URLSearchParams;
+    searchParams: { scope?: string; locale?: string; expireSessions?: boolean };
+    body: URLSearchParams | FormData;
     response: AuthResponse;
   };
   "POST /api/vtexid/pub/authentication/accesskey/send": {
@@ -170,7 +175,7 @@ export interface VTEXCommerceStable {
     };
   };
 
-  "GET /api/checkout/changeToAnonymousUser/:orderFormId": {
+  "GET /checkout/changeToAnonymousUser/:orderFormId": {
     response: OrderForm;
     searchParams: { sc?: string };
   };
@@ -309,6 +314,13 @@ export interface VTEXCommerceStable {
   };
   "GET /api/checkout/pub/orders/order-group/:orderGroupId": {
     response: OrderFormOrder[];
+  };
+  "GET /api/vtexid/pub/logout": {
+    searchParams: {
+      scope?: string;
+      returnUrl?: string;
+    };
+    response: LogoutResponse;
   };
 }
 
