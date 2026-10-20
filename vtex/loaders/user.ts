@@ -1,6 +1,6 @@
 import { Person } from "../../commerce/types.ts";
 import { AppContext } from "../mod.ts";
-import { parseCookie } from "../utils/vtexId.ts";
+import { forwardCookie, parseCookie } from "../utils/vtexId.ts";
 
 interface ProfileCustomField {
   key: string;
@@ -32,7 +32,9 @@ async function loader(
   ctx: AppContext,
 ): Promise<Person | null> {
   const { io } = ctx;
-  const { cookie, payload } = parseCookie(req.headers, ctx.account);
+  const { payload } = parseCookie(req.headers, ctx.account);
+
+  const cookie = forwardCookie(req.headers);
 
   if (!payload?.sub || !payload?.userId) {
     return null;

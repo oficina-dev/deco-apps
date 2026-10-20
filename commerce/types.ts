@@ -841,6 +841,11 @@ export interface PageInfo {
   records?: number | undefined;
   recordPerPage?: number | undefined;
   pageTypes?: PageType[];
+  /**
+   * Id the search engine gave this page of results, when it gives one. Search analytics
+   * report it back verbatim, so it is never made up here.
+   */
+  searchId?: string;
 }
 export interface ProductListingPage {
   "@type": "ProductListingPage";

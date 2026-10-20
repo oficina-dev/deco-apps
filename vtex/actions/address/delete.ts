@@ -1,5 +1,5 @@
 import { AppContext } from "../../mod.ts";
-import { parseCookie } from "../../utils/vtexId.ts";
+import { forwardCookie, parseCookie } from "../../utils/vtexId.ts";
 
 interface DeleteAddress {
   cacheId: string;
@@ -53,7 +53,9 @@ interface Props {
  */
 async function action({ addressId }: Props, req: Request, ctx: AppContext) {
   const { io } = ctx;
-  const { cookie, payload } = parseCookie(req.headers, ctx.account);
+  const { payload } = parseCookie(req.headers, ctx.account);
+
+  const cookie = forwardCookie(req.headers);
 
   if (!payload?.sub || !payload?.userId) {
     throw new Error("User cookie is invalid");
