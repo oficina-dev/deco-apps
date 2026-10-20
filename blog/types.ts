@@ -19,6 +19,7 @@ export interface Author {
   avatar?: ImageWidget;
   jobTitle?: string;
   company?: string;
+  url?: string;
 }
 
 export interface Category {
@@ -49,6 +50,11 @@ export interface BlogPost {
    * @title Alt text for the image
    */
   alt?: string;
+  /**
+   * @title Mobile image
+   * @description Optional mobile-optimized version of the main image. Served below 768px. Falls back to the main image when empty.
+   */
+  mobileImage?: ImageWidget;
   /**
    * @widget blog
    * @collection authors
@@ -92,11 +98,6 @@ export interface BlogPost {
    * @changeable true
    */
   sections?: Section[];
-  /**
-   * @title Carousel in post content
-   * @description add a carousel in the middle of the post. Must be implemented in frontEnd
-   */
-  imageCarousel?: ImageCarousel;
   /**
    * @title SEO
    */
@@ -240,11 +241,6 @@ export interface BlogPostListingPage {
   categoryPath?: Category[] | null;
   pageInfo: PageInfo;
   seo: Seo;
-}
-
-export interface ImageCarousel {
-  banners?: Banner[];
-  description?: string;
 }
 
 export interface Review {
