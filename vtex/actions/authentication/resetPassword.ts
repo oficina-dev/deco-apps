@@ -5,10 +5,41 @@ import {
   buildCookieJar,
   proxySetCookie,
   REFRESH_TOKEN_COOKIE,
+  setCookiesFromSession,
 } from "../../utils/cookies.ts";
+import { defaultItems } from "../../utils/session.ts";
 import { HttpError } from "../../../utils/http.ts";
 import { logger } from "@deco/deco/o11y";
 import { authResponseFromHttpError } from "../../utils/authResponse.ts";
+
+const SESSION_COOKIE = "vtex_session";
+
+/**
+ * `expireSessions=true` turns the shopper's existing `vtex_session` anonymous
+ * (the VTEX ID token stays valid), and it may land after an immediate PATCH —
+ * so editing that session can race and lose. A session created without the
+ * old cookie is built from the still-valid token instead.
+ */
+async function startFreshSession(req: Request, ctx: AppContext) {
+  const { cookies } = buildCookieJar(
+    req.headers,
+    getSetCookies(ctx.response.headers),
+  );
+  delete cookies[SESSION_COOKIE];
+  const cookie = Object.entries(cookies)
+    .map(([name, value]) => `${name}=${value}`)
+    .join("; ");
+
+  const response = await ctx.vcs["POST /api/sessions"](
+    { items: defaultItems },
+    { body: { public: {} }, headers: { cookie } },
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to create session: ${response.status}`);
+  }
+
+  setCookiesFromSession({ from: response.headers, req, ctx });
+}
 
 export interface Props {
   email: string;
@@ -102,11 +133,13 @@ export default async function action(
   proxySetCookie(response.headers, ctx.response.headers, req.url);
 
   try {
-    await ctx.invoke.vtex.actions.session.validateSession();
+    if (data.authStatus === "Success") {
+      await startFreshSession(req, ctx);
+    }
   } catch (error) {
     // setpassword already succeeded — a session hiccup must not look like a failure.
     logger.error(
-      "[vtex/resetPassword] validateSession failed after password change",
+      "[vtex/resetPassword] new session failed after password change",
       {
         email: props.email,
         body: error instanceof Error ? error.message : String(error),
