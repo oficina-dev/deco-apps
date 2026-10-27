@@ -10,6 +10,13 @@ export interface Props {
   expectedOrderFormSections?: string[];
   // deno-lint-ignore no-explicit-any
   body: any;
+  /**
+   * Client-supplied orderFormId fallback for when the checkout.vtex.com cookie
+   * is absent on the request (e.g. in-app WebViews with partitioned/ephemeral
+   * cookies). VTEX addresses the orderForm by the URL path param, so the cookie
+   * is optional for the write.
+   */
+  orderFormId?: string;
 }
 
 /**
@@ -27,7 +34,14 @@ const action = async (
     body,
     expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS,
   } = props;
-  const { orderFormId } = parseCookie(req.headers);
+  // VTEX addresses the orderForm by the URL path param, so the checkout.vtex.com
+  // cookie is optional for the write. In-app WebViews (Instagram iOS) often drop
+  // that HttpOnly cookie while the client still holds a valid orderFormId, so fall
+  // back to the client-supplied props.orderFormId. Keep the throw: a genuinely
+  // missing id must still error (never no-op — the cart queue would otherwise
+  // overwrite the local cart signal with an empty orderForm).
+  const { orderFormId: cookieOrderFormId } = parseCookie(req.headers);
+  const orderFormId = cookieOrderFormId || props.orderFormId;
 
   if (!orderFormId || orderFormId === "") {
     throw new Error("Order form ID is required");
