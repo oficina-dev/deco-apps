@@ -1,11 +1,20 @@
-import { asResolved, context, isDeferred, RequestContext } from "@deco/deco";
+import {
+  asResolved,
+  Context,
+  context,
+  isDeferred,
+  RequestContext,
+} from "@deco/deco";
 import {
   type Section,
   type SectionContext,
   SectionCtx,
 } from "@deco/deco/blocks";
 import { useContext } from "preact/hooks";
-import { shouldForceRender } from "../../../utils/deferred.ts";
+import {
+  isAsyncRenderDisabled,
+  shouldForceRender,
+} from "../../../utils/deferred.ts";
 import type { AppContext } from "../../mod.ts";
 const useSectionContext = () =>
   useContext<SectionContext | undefined>(SectionCtx);
@@ -95,6 +104,20 @@ export const loader = async (props: Props, req: Request, ctx: AppContext) => {
       },
     },
   });
+  // The component key only exists after the aborted pass above, so a section
+  // that opted out of async rendering is resolved a second time, for real.
+  const runtime = await Context.active().runtime;
+  if (
+    isAsyncRenderDisabled(
+      runtime?.manifest.sections,
+      resolvedSection?.metadata?.component,
+    )
+  ) {
+    return {
+      loading: "eager",
+      section: isDeferred<Section>(section) ? await section() : section,
+    };
+  }
   return {
     loading: shouldRender ? "eager" : "lazy",
     section: {

@@ -19,12 +19,18 @@ export interface Author {
   avatar?: ImageWidget;
   jobTitle?: string;
   company?: string;
+  url?: string;
 }
 
 export interface Category {
   name: string;
   slug: string;
   description?: string;
+  /**
+   * @title Parent category
+   * @description Slug of the parent category. Leave empty for a root category.
+   */
+  parentSlug?: string;
   /**
    * @title Sections
    * @label hidden
@@ -44,6 +50,11 @@ export interface BlogPost {
    * @title Alt text for the image
    */
   alt?: string;
+  /**
+   * @title Mobile image
+   * @description Optional mobile-optimized version of the main image. Served below 768px. Falls back to the main image when empty.
+   */
+  mobileImage?: ImageWidget;
   /**
    * @widget blog
    * @collection authors
@@ -87,11 +98,6 @@ export interface BlogPost {
    * @changeable true
    */
   sections?: Section[];
-  /**
-   * @title Carousel in post content
-   * @description add a carousel in the middle of the post. Must be implemented in frontEnd
-   */
-  imageCarousel?: ImageCarousel;
   /**
    * @title SEO
    */
@@ -206,6 +212,11 @@ export interface Publisher {
 export interface BlogPostPage {
   "@type": "BlogPostPage";
   post: BlogPost;
+  /**
+   * @title Category path
+   * @description Ancestor chain of the post's primary category, root first.
+   */
+  categories?: Category[] | null;
   seo?: Seo | null;
 }
 
@@ -223,13 +234,13 @@ export interface BlogPostListingPage {
   category?: Category | null;
   /** @title Categories */
   categories?: Category[] | null;
+  /**
+   * @title Category path
+   * @description Ancestor chain of the active category, root first.
+   */
+  categoryPath?: Category[] | null;
   pageInfo: PageInfo;
   seo: Seo;
-}
-
-export interface ImageCarousel {
-  banners?: Banner[];
-  description?: string;
 }
 
 export interface Review {

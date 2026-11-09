@@ -9,13 +9,17 @@ const isPage = (handler: Resolvable<Handler>) =>
 const isAbsolute = (href: string) =>
   !href.includes(":") && !href.includes("*") && !href.startsWith("/_live");
 
+/**
+ * No <lastmod>: nothing here knows when a page last changed, and stamping every
+ * entry with today teaches crawlers to ignore the field site-wide, including
+ * the sitemaps that do carry real dates.
+ */
 const buildSiteMap = (urls: string[]) => {
   const entries: string[] = [];
   for (const url of urls) {
     entries.push(`
   <url>
     <loc>${url}</loc>
-    <lastmod>${new Date().toISOString().substring(0, 10)}</lastmod>
     <changefreq>weekly</changefreq>
   </url>`);
   }

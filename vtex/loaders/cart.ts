@@ -142,23 +142,41 @@ const loader = async (
       hasDifferentMarketingData(cart.marketingData, marketingData)
     ) {
       const expectedOrderFormSections = DEFAULT_EXPECTED_SECTIONS;
-      const result = await vcsDeprecated
-        ["POST /api/checkout/pub/orderForm/:orderFormId/attachments/:attachment"](
-          {
-            orderFormId: cart.orderFormId,
-            attachment: "marketingData",
-            sc: segment?.payload.channel,
-          },
-          {
-            body: { expectedOrderFormSections, ...marketingData },
-            headers: {
-              accept: "application/json",
-              "content-type": "application/json",
-              cookie: withOrderFormIdCookie,
+      try {
+        const result = await vcsDeprecated
+          ["POST /api/checkout/pub/orderForm/:orderFormId/attachments/:attachment"](
+            {
+              orderFormId: cart.orderFormId,
+              attachment: "marketingData",
+              sc: segment?.payload.channel,
             },
-          },
-        );
-      return forceHttpsOnAssets((await result.json()) as OrderForm);
+            {
+              body: { expectedOrderFormSections, ...marketingData },
+              headers: {
+                accept: "application/json",
+                "content-type": "application/json",
+                cookie: withOrderFormIdCookie,
+              },
+            },
+          );
+        return forceHttpsOnAssets((await result.json()) as OrderForm);
+      } catch (error) {
+        // This marketingData write only ECHOES attribution VTEX already stored on
+        // the orderForm (it is a no-op on success). VTEX rejects it with 400
+        // CHK0038 when a matched campaign audience injects a null marketingTag
+        // (known issue: marketingtags-with-null-value-when-campaign-audience-is-
+        // matched). A failed attribution side-write must NOT break the whole cart,
+        // so serve the already-fetched cart instead of letting the error bubble.
+        // Do NOT sanitize/strip marketingTags to "fix" this: overwriting VTEX's
+        // marketingData drops the promotion trigger — it hurt sales and was
+        // reverted (PR #352). The campaign tags stay intact on the server cart.
+        logger.warn("marketingData attribution re-POST failed", {
+          orderFormId: cart.orderFormId,
+          error: error instanceof Error ? error.message : String(error),
+          reqUrl: req.url,
+        });
+        return forceHttpsOnAssets(cart);
+      }
     }
   }
 

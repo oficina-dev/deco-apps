@@ -1,10 +1,14 @@
 import { Author, BlogPost, Category, Publisher } from "../types.ts";
+import { toISODateTime } from "./date.ts";
 
 const toAuthor = (author: Author) => {
   const type = author.type ?? "Person";
   return {
     "@type": type,
     name: author.name,
+    // url and image are valid on both Person and Organization
+    ...(author.url ? { url: author.url } : {}),
+    ...(author.avatar ? { image: author.avatar } : {}),
     // jobTitle and worksFor are Person-only properties
     ...(type === "Person" && author.jobTitle
       ? { jobTitle: author.jobTitle }
@@ -73,13 +77,18 @@ export const toBlogPosting = (
       ? post.interactionStatistic
       : undefined;
 
+  const datePublished = post.date ? toISODateTime(post.date) : undefined;
+  const dateModified = post.dateModified
+    ? toISODateTime(post.dateModified)
+    : undefined;
+
   return {
     "@type": "BlogPosting" as const,
     headline: post.title,
     ...(post.excerpt ? { description: post.excerpt } : {}),
     ...(image ? { image: [image] } : {}),
-    ...(post.date ? { datePublished: post.date } : {}),
-    ...(post.dateModified ? { dateModified: post.dateModified } : {}),
+    ...(datePublished ? { datePublished } : {}),
+    ...(dateModified ? { dateModified } : {}),
     ...(post.authors?.length ? { author: post.authors.map(toAuthor) } : {}),
     ...(publisher?.name ? { publisher: toOrganization(publisher) } : {}),
     ...(categories?.length ? { articleSection: categories } : {}),

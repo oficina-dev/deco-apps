@@ -2,7 +2,7 @@ import type { PostalAddress } from "../../../commerce/types.ts";
 import type { AppContext } from "../../mod.ts";
 import { toPostalAddress } from "../../utils/transform.ts";
 import type { Address } from "../../utils/types.ts";
-import { parseCookie } from "../../utils/vtexId.ts";
+import { forwardCookie, parseCookie } from "../../utils/vtexId.ts";
 
 const query = `query Addresses @context(scope: "private") {
   profile {
@@ -35,7 +35,9 @@ async function loader(
   ctx: AppContext,
 ): Promise<PostalAddress[]> {
   const { io } = ctx;
-  const { cookie, payload } = parseCookie(req.headers, ctx.account);
+  const { payload } = parseCookie(req.headers, ctx.account);
+
+  const cookie = forwardCookie(req.headers);
 
   if (!payload?.sub || !payload?.userId) {
     throw new Error("User cookie is invalid");
