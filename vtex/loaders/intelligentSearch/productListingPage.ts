@@ -43,6 +43,8 @@ import type {
 import { getFirstItemAvailable } from "../legacy/productListingPage.ts";
 import PLPDefaultPath from "../paths/PLPDefaultPath.ts";
 import { redirect } from "@deco/deco";
+import type { LoaderModule } from "@deco/deco/blocks";
+import { logger } from "@deco/deco/o11y";
 /** this type is more friendly user to fuzzy type that is 0, 1 or auto. */
 export type LabelledFuzzy = "automatic" | "disabled" | "enabled";
 /**
@@ -181,6 +183,17 @@ const pageOf = (props: Props, url: URL) => {
     Math.min(fromUrl ? Number(fromUrl) - offset : 0, VTEX_MAX_PAGES - offset);
 };
 
+/**
+ * The full-text term the request asks for, before any path-derived fallback:
+ * the `query` prop — set by a listing block in the CMS or by an invoker such as
+ * the storefront's instant search or the app — else the URL's `q`.
+ */
+const fullTextQueryOf = (props: Props, url: URL) =>
+  props.query ?? url.searchParams.get("q") ?? "";
+
+const isCachedSearchTerm = (term: string, ctx: AppContext) =>
+  (ctx.cachedSearchTerms ?? []).includes(term.toLowerCase());
+
 const searchArgsOf = (props: Props, url: URL, ctx: AppContext) => {
   const hideUnavailableItems = props.hideUnavailableItems ??
     ctx.advancedConfigs?.hideUnavailableItems;
@@ -189,7 +202,7 @@ const searchArgsOf = (props: Props, url: URL, ctx: AppContext) => {
     props.simulationBehavior || "default";
   const countFromSearchParams = url.searchParams.get("PS");
   const count = Number(countFromSearchParams ?? props.count ?? 12);
-  const query = props.query ?? url.searchParams.get("q") ?? "";
+  const query = fullTextQueryOf(props, url);
   const page = pageOf(props, url);
   const sort = (url.searchParams.get("sort")) ??
     LEGACY_TO_IS[url.searchParams.get("O") ?? ""] ??
@@ -293,9 +306,7 @@ const loader = async (
 ): Promise<ProductListingPage | null> => {
   const { vcsDeprecated } = ctx;
   const { url: baseUrl } = req;
-  const url = new URL(
-    props.pageHref && URL.canParse(props.pageHref) ? props.pageHref : baseUrl,
-  );
+  const url = keyUrlOf(props.pageHref, req);
   const segment = getSegmentFromBag(ctx);
   const currentPageoffset = props.pageOffset ?? 1;
   const { selectedFacets: baseSelectedFacets, page, ...args } = searchArgsOf(
@@ -459,8 +470,7 @@ export const cache = "stale-while-revalidate";
 export const cacheKey = (props: Props, req: Request, ctx: AppContext) => {
   const url = keyUrlOf(props.pageHref, req);
   const searchTerm = url.searchParams.get("q");
-  const cachedSearchTerms = ctx.cachedSearchTerms ?? [];
-  if (searchTerm && !cachedSearchTerms.includes(searchTerm.toLowerCase())) {
+  if (searchTerm && !isCachedSearchTerm(searchTerm, ctx)) {
     return null;
   }
 
@@ -538,5 +548,49 @@ export const cacheKey = (props: Props, req: Request, ctx: AppContext) => {
   url.search = pairs.filter((pair, i) => pair !== pairs[i - 1]).join("&");
 
   return url.href;
+};
+/**
+ * Keeps a full-text search that found no products out of the loader cache.
+ * Intelligent Search sometimes answers a popular term empty for a moment;
+ * cached, that one answer became "not found" for every shopper on the pod
+ * asking for the term. Uncached, only the requests that shared that call see
+ * it, and when it comes from the background revalidation the previous listing
+ * keeps being served while the cache engine retains it.
+ *
+ * Scope: the result has no products and the request has a full-text term,
+ * from `fullTextQueryOf` — the `query` prop, else the URL's `q` (from
+ * `pageHref` or the request). That includes listing blocks that pin a `query`
+ * in the CMS to build a page (a "Linho" or "Jeans" landing page): nothing
+ * tells a block's `query` apart from an invoker's search, so an empty one is
+ * not stored either and each request asks Intelligent Search again. Stored as
+ * before: a listing without a term (an empty category or collection resolved
+ * from the path or from `selectedFacets`), and a term read from the path
+ * (`/camisa`), which only the loader's page-type lookup can tell apart.
+ *
+ * The runtime asks only when it would store the result, so a term outside
+ * `cachedSearchTerms` in the URL's `q` (`cacheKey` returns null) never gets
+ * here. Each veto of a `cachedSearchTerms` term on its first page without
+ * selected facets logs a warning: such a term is expected to have products.
+ * Other vetoes are not logged — a page past the end, a facet combination
+ * with no match, a typo typed into instant search are empty for real.
+ */
+export const shouldCache: NonNullable<
+  LoaderModule<Props, AppContext, ProductListingPage | null>["shouldCache"]
+> = (result, props, req, ctx) => {
+  if (!result || result.products.length > 0) return true;
+
+  const url = keyUrlOf(props.pageHref, req);
+  const term = fullTextQueryOf(props, url);
+  if (!term) return true;
+
+  const isUnfilteredFirstPage = pageOf(props, url) === 0 &&
+    mergeFacets(props.selectedFacets ?? [], filtersFromURL(url)).length === 0;
+  if (isCachedSearchTerm(term, ctx) && isUnfilteredFirstPage) {
+    logger.warn("Intelligent Search answered a cached search term empty", {
+      term,
+      recordsFiltered: result.pageInfo.records,
+    });
+  }
+  return false;
 };
 export default loader;
