@@ -43,6 +43,7 @@ import type {
 import { getFirstItemAvailable } from "../legacy/productListingPage.ts";
 import PLPDefaultPath from "../paths/PLPDefaultPath.ts";
 import { redirect } from "@deco/deco";
+import { logger } from "@deco/deco/o11y";
 /** this type is more friendly user to fuzzy type that is 0, 1 or auto. */
 export type LabelledFuzzy = "automatic" | "disabled" | "enabled";
 /**
@@ -181,6 +182,13 @@ const pageOf = (props: Props, url: URL) => {
     Math.min(fromUrl ? Number(fromUrl) - offset : 0, VTEX_MAX_PAGES - offset);
 };
 
+/** The full-text term the request asks for, before any path-derived fallback. */
+const fullTextQueryOf = (props: Props, url: URL) =>
+  props.query ?? url.searchParams.get("q") ?? "";
+
+const isCachedSearchTerm = (term: string, ctx: AppContext) =>
+  (ctx.cachedSearchTerms ?? []).includes(term.toLowerCase());
+
 const searchArgsOf = (props: Props, url: URL, ctx: AppContext) => {
   const hideUnavailableItems = props.hideUnavailableItems ??
     ctx.advancedConfigs?.hideUnavailableItems;
@@ -189,7 +197,7 @@ const searchArgsOf = (props: Props, url: URL, ctx: AppContext) => {
     props.simulationBehavior || "default";
   const countFromSearchParams = url.searchParams.get("PS");
   const count = Number(countFromSearchParams ?? props.count ?? 12);
-  const query = props.query ?? url.searchParams.get("q") ?? "";
+  const query = fullTextQueryOf(props, url);
   const page = pageOf(props, url);
   const sort = (url.searchParams.get("sort")) ??
     LEGACY_TO_IS[url.searchParams.get("O") ?? ""] ??
@@ -293,9 +301,7 @@ const loader = async (
 ): Promise<ProductListingPage | null> => {
   const { vcsDeprecated } = ctx;
   const { url: baseUrl } = req;
-  const url = new URL(
-    props.pageHref && URL.canParse(props.pageHref) ? props.pageHref : baseUrl,
-  );
+  const url = keyUrlOf(props.pageHref, req);
   const segment = getSegmentFromBag(ctx);
   const currentPageoffset = props.pageOffset ?? 1;
   const { selectedFacets: baseSelectedFacets, page, ...args } = searchArgsOf(
@@ -393,6 +399,18 @@ const loader = async (
   }
   const { products: vtexProducts, pagination, recordsFiltered, searchId } =
     productsResult;
+  // A popular term is expected to have products, so an empty answer for one is
+  // most likely an Intelligent Search hiccup. `shouldCache` keeps it out of the
+  // cache; this leaves a trace that it happened.
+  if (
+    fullTextTerm && vtexProducts.length === 0 &&
+    isCachedSearchTerm(fullTextTerm, ctx)
+  ) {
+    logger.warn("Intelligent Search answered a cached search term empty", {
+      term: fullTextTerm,
+      recordsFiltered,
+    });
+  }
   const facets = selectPriceFacet(facetsResult.facets, selectedFacets);
   // Transform VTEX product format into schema.org's compatible format
   // If a property is missing from the final `products` array you can add
@@ -459,8 +477,7 @@ export const cache = "stale-while-revalidate";
 export const cacheKey = (props: Props, req: Request, ctx: AppContext) => {
   const url = keyUrlOf(props.pageHref, req);
   const searchTerm = url.searchParams.get("q");
-  const cachedSearchTerms = ctx.cachedSearchTerms ?? [];
-  if (searchTerm && !cachedSearchTerms.includes(searchTerm.toLowerCase())) {
+  if (searchTerm && !isCachedSearchTerm(searchTerm, ctx)) {
     return null;
   }
 
@@ -538,5 +555,25 @@ export const cacheKey = (props: Props, req: Request, ctx: AppContext) => {
   url.search = pairs.filter((pair, i) => pair !== pairs[i - 1]).join("&");
 
   return url.href;
+};
+/**
+ * A full-text search that found no products is never stored. Intelligent
+ * Search sometimes answers a popular term empty for a moment; cached, that one
+ * answer became "not found" for every shopper on the pod asking for the term.
+ * Uncached, only the request that got it sees it, and when it comes from the
+ * background revalidation the previous listing keeps being served.
+ *
+ * An empty category or collection listing is still cached. So is a term read
+ * from the path (`/camisa`): telling it apart takes the page-type lookup the
+ * loader makes, so it keeps the previous behaviour.
+ */
+export const shouldCache = (
+  result: ProductListingPage | null,
+  props: Props,
+  req: Request,
+) => {
+  const url = keyUrlOf(props.pageHref, req);
+  const isFullTextSearch = fullTextQueryOf(props, url) !== "";
+  return !(isFullTextSearch && result?.products.length === 0);
 };
 export default loader;
