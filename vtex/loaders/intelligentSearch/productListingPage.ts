@@ -43,6 +43,7 @@ import type {
 import { getFirstItemAvailable } from "../legacy/productListingPage.ts";
 import PLPDefaultPath from "../paths/PLPDefaultPath.ts";
 import { redirect } from "@deco/deco";
+import type { LoaderModule } from "@deco/deco/blocks";
 import { logger } from "@deco/deco/o11y";
 /** this type is more friendly user to fuzzy type that is 0, 1 or auto. */
 export type LabelledFuzzy = "automatic" | "disabled" | "enabled";
@@ -182,7 +183,11 @@ const pageOf = (props: Props, url: URL) => {
     Math.min(fromUrl ? Number(fromUrl) - offset : 0, VTEX_MAX_PAGES - offset);
 };
 
-/** The full-text term the request asks for, before any path-derived fallback. */
+/**
+ * The full-text term the request asks for, before any path-derived fallback:
+ * the `query` prop — set by a listing block in the CMS or by an invoker such as
+ * the storefront's instant search or the app — else the URL's `q`.
+ */
 const fullTextQueryOf = (props: Props, url: URL) =>
   props.query ?? url.searchParams.get("q") ?? "";
 
@@ -399,18 +404,6 @@ const loader = async (
   }
   const { products: vtexProducts, pagination, recordsFiltered, searchId } =
     productsResult;
-  // A popular term is expected to have products, so an empty answer for one is
-  // most likely an Intelligent Search hiccup. `shouldCache` keeps it out of the
-  // cache; this leaves a trace that it happened.
-  if (
-    fullTextTerm && vtexProducts.length === 0 &&
-    isCachedSearchTerm(fullTextTerm, ctx)
-  ) {
-    logger.warn("Intelligent Search answered a cached search term empty", {
-      term: fullTextTerm,
-      recordsFiltered,
-    });
-  }
   const facets = selectPriceFacet(facetsResult.facets, selectedFacets);
   // Transform VTEX product format into schema.org's compatible format
   // If a property is missing from the final `products` array you can add
@@ -557,23 +550,47 @@ export const cacheKey = (props: Props, req: Request, ctx: AppContext) => {
   return url.href;
 };
 /**
- * A full-text search that found no products is never stored. Intelligent
- * Search sometimes answers a popular term empty for a moment; cached, that one
- * answer became "not found" for every shopper on the pod asking for the term.
- * Uncached, only the request that got it sees it, and when it comes from the
- * background revalidation the previous listing keeps being served.
+ * Keeps a full-text search that found no products out of the loader cache.
+ * Intelligent Search sometimes answers a popular term empty for a moment;
+ * cached, that one answer became "not found" for every shopper on the pod
+ * asking for the term. Uncached, only the requests that shared that call see
+ * it, and when it comes from the background revalidation the previous listing
+ * keeps being served while the cache engine retains it.
  *
- * An empty category or collection listing is still cached. So is a term read
- * from the path (`/camisa`): telling it apart takes the page-type lookup the
- * loader makes, so it keeps the previous behaviour.
+ * Scope: the result has no products and the request has a full-text term,
+ * from `fullTextQueryOf` — the `query` prop, else the URL's `q` (from
+ * `pageHref` or the request). That includes listing blocks that pin a `query`
+ * in the CMS to build a page (a "Linho" or "Jeans" landing page): nothing
+ * tells a block's `query` apart from an invoker's search, so an empty one is
+ * not stored either and each request asks Intelligent Search again. Stored as
+ * before: a listing without a term (an empty category or collection resolved
+ * from the path or from `selectedFacets`), and a term read from the path
+ * (`/camisa`), which only the loader's page-type lookup can tell apart.
+ *
+ * The runtime asks only when it would store the result, so a term outside
+ * `cachedSearchTerms` in the URL's `q` (`cacheKey` returns null) never gets
+ * here. Each veto of a `cachedSearchTerms` term on its first page without
+ * selected facets logs a warning: such a term is expected to have products.
+ * Other vetoes are not logged — a page past the end, a facet combination
+ * with no match, a typo typed into instant search are empty for real.
  */
-export const shouldCache = (
-  result: ProductListingPage | null,
-  props: Props,
-  req: Request,
-) => {
+export const shouldCache: NonNullable<
+  LoaderModule<Props, AppContext, ProductListingPage | null>["shouldCache"]
+> = (result, props, req, ctx) => {
+  if (!result || result.products.length > 0) return true;
+
   const url = keyUrlOf(props.pageHref, req);
-  const isFullTextSearch = fullTextQueryOf(props, url) !== "";
-  return !(isFullTextSearch && result?.products.length === 0);
+  const term = fullTextQueryOf(props, url);
+  if (!term) return true;
+
+  const isUnfilteredFirstPage = pageOf(props, url) === 0 &&
+    mergeFacets(props.selectedFacets ?? [], filtersFromURL(url)).length === 0;
+  if (isCachedSearchTerm(term, ctx) && isUnfilteredFirstPage) {
+    logger.warn("Intelligent Search answered a cached search term empty", {
+      term,
+      recordsFiltered: result.pageInfo.records,
+    });
+  }
+  return false;
 };
 export default loader;
